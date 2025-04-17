@@ -1,0 +1,10 @@
+[meta]
+name        = "Bonk++"
+author      = "Shike"
+version     = "1.0.2"
+description = "Plays sounds and shows visuals on crashes, inspired by MisfitMaid's Bonk!."
+category    = "Audio"
+
+[script]
+dependencies = [ "VehicleState" ]
+optional_dependencies = [ "MLHook", "MLFeedRaceData" ]
