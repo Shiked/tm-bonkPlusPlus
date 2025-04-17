@@ -1,7 +1,5 @@
 # Bonk++ for Trackmania
-
-**Version:** 1.0.2  
-**Author:** Shike
+**Version:** 1.0.2
 
 ## Description
 
@@ -28,7 +26,7 @@ It uses physics analysis inspired by the original ["Bonk!" plugin](https://githu
 
 ## Configuration (Openplanet Settings)
 
-You can configure Bonk++ through the Openplanet overlay (press `F3`). 
+You can configure Bonk++ through the Openplanet overlay (press `F3`).  
 Navigate to `Openplanet` -> `Settings` -> `Audio` -> `Bonk++`.
 
 ### General
@@ -77,14 +75,14 @@ Navigate to `Openplanet` -> `Settings` -> `Audio` -> `Bonk++`.
 ## Dependencies
 
 *   **Required:**
-    *   [VehicleState](https://openplanet.dev/plugin/vehiclestate): Provides necessary vehicle physics information (velocity, wheel contact, etc.). Must be installed and enabled.
+    *   VehicleState (comes from Openplanet): Provides necessary vehicle physics information (velocity, wheel contact, etc.). Must be installed and enabled.
 *   **Optional (Recommended for best respawn detection):**
     *   [MLHook](https://openplanet.dev/plugin/mlhook): Base plugin for ManiaLive interaction.
-    *   [MLFeedRaceData](https://openplanet.dev/plugin/mlfeedracedata): Provides detailed race state information, including precise respawn status.
+    *   [MLFeedRaceData](https://openplanet.dev/plugin/mlfeedracedata): Provides detailed race state information, including precise respawn status
 
 ## Troubleshooting
 
 *   **No sounds play:** Check `Enable Sound Effect`, `Bonk Volume`, `Bonk Chance`. Ensure default sounds are enabled or `Enable Custom Sounds` is on and files exist in the correct folder/format. Check the Openplanet log (`Ctrl+L`) for loading errors.
 *   **Bonks trigger too often/not often enough:** Adjust `Preliminary Accel Threshold` and the `Sensitivity` settings. Lower threshold/sensitivity = more bonks. Higher threshold/sensitivity = fewer bonks. Check debug logs if enabled.
 *   **Bonks trigger on respawn:** Ensure `MLHook` and `MLFeedRaceData` are installed and enabled for the most reliable detection. If they are not available, the plugin relies on less precise methods which might occasionally trigger.
-*   **Visual effect is annoying/too strong/too weak:** Adjust `Enable Visual Effect`, `Duration`, `Color`, `Max Opacity`, `Feather`, and `Radius` settings.
+*   **Visual effect is annoying/too strong/too weak:** Adjust `Enable Visual Effect`, `Duration`, `Color`, `Max Opacity`, `Feather`, and `Radius` settings
