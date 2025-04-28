@@ -1,279 +1,175 @@
-// --- soundPlayer.as ---
-// Manages loading, selecting, and playing bonk sound effects.
-// Updated to load default sounds from the "Sounds/" subfolder.
+// --- settings.as ---
+// Handles Bonk++ plugin settings definitions, debug logging,
+// and specific UI elements related to settings (like the sound folder info).
 
-#include "settings" // Needed for settings access and Debug namespace
+// --- Settings Definitions ---
+// Global variables annotated with [Setting] are automatically handled by Openplanet.
 
-namespace SoundPlayer {
+// --- General Settings ---
+[Setting category="General" name="Enable Sound Effect" description="Play a sound when you bonk."]
+bool Setting_EnableSound = true;
+[Setting category="General" name="Enable Visual Effect" description="Show a visual effect when you bonk."]
+bool Setting_EnableVisual = true;
+[Setting category="General" name="Bonk Chance (%)" description="Probability (0-100%) that a sound will play on bonk." min=0 max=100]
+uint Setting_BonkChance = 100;
+[Setting category="General" name="Bonk Volume (%)" description="Volume for bonk sound effects." min=0 max=100]
+uint Setting_BonkVolume = 69;
 
-    // --- Sound Metadata Class ---
-    class SoundInfo {
-        string path;             // Full relative path (e.g., "Sounds/bonk.wav" or absolute path for custom)
-        Audio::Sample@ sample = null;
-        bool enabled = true;
-        bool isCustom = false;
-        string displayName;      // Base filename (e.g., "bonk.wav") for UI/logs
-        bool loadAttempted = false;
-        bool loadFailed = false;
+// --- Detection Settings ---
+[Setting category="Detection" name="Preliminary Accel Threshold" description="Initial deceleration required (lower = more sensitive). Base value for dynamic threshold." min=1.0 max=100.0]
+float Setting_BonkThreshold = 16.0f;
+[Setting category="Detection" name="Sensitivity (Grounded)" description="Jerk magnitude threshold when 4 wheels are grounded (higher = less sensitive)." min=1.0 max=50.0]
+float Setting_SensitivityGrounded = 4.0f;
+[Setting category="Detection" name="Sensitivity (Airborne/Less Contact)" description="Jerk magnitude threshold when < 4 wheels are grounded (higher = less sensitive)." min=1.0 max=50.0]
+float Setting_SensitivityAirborne = 4.0f;
+[Setting category="Detection" name="Bonk Debounce (ms)" description="Minimum time in milliseconds between bonks." min=300 max=5000]
+uint Setting_BonkDebounce = 500;
+
+// --- Sound Settings ---
+enum SoundMode { Random, Ordered } // Defines the playback modes available in settings
+[Setting category="Sound" name="Sound Playback Mode" description="How to select the next sound effect."]
+SoundMode Setting_SoundPlaybackMode = SoundMode::Random;
+[Setting category="Sound" name="Max Consecutive Repeats (Random)" description="Max times the same sound plays consecutively in Random mode (1 = never repeats)." min=1 max=5]
+uint Setting_MaxConsecutiveRepeats = 3;
+[Setting category="Sound" name="Enable Custom Sounds" description="Load sound files from the PluginStorage folder."]
+bool Setting_EnableCustomSounds = true;
+// Specific toggles for default sounds
+[Setting category="Sound" name="Enable bonk.wav" description="Enable the default bonk.wav sound."]
+bool Setting_Enable_bonkwav = true;
+[Setting category="Sound" name="Enable oof.wav" description="Enable the default oof.wav sound."]
+bool Setting_Enable_oofwav = true;
+// `afterrender` calls the specified global function after this setting widget is drawn in the UI
+[Setting category="Sound" name="Enable vineboom.mp3" description="Enable the default vineboom.mp3 sound." afterrender="RenderSoundCategoryFooter"]
+bool Setting_Enable_vineboommp3 = true;
+
+// --- Visual Settings ---
+[Setting category="Visual" name="Duration (ms)" description="How long the visual effect lasts." min=50 max=2000]
+uint Setting_VisualDuration = 420;
+[Setting category="Visual" name="Color" color description="Color of the visual effect vignette."]
+vec3 Setting_VisualColor = vec3(1.0f, 0.0f, 0.0f); // Default Red
+[Setting category="Visual" name="Max Opacity" description="Maximum opacity/intensity of the effect (0.0 to 1.0)." min=0.0 max=1.0]
+float Setting_VisualMaxOpacity = 0.696f;
+[Setting category="Visual" name="Feather (Width %)" description="How far the gradient spreads inwards (fraction of screen width)." min=0.0 max=1.0]
+float Setting_VisualFeather = 0.1f;
+[Setting category="Visual" name="Radius (Height %)" description="Rounding of the gradient shape corners (fraction of screen height)." min=0.0 max=1.0]
+float Setting_VisualRadius = 0.2f;
+
+// --- Misc. Settings (Debug) ---
+// Master toggle for all debug logs
+[Setting category="Misc." name="Enable Debug Logging" description="Show detailed logs for debugging."]
+bool Setting_Debug_EnableMaster = false;
+// Individual toggles for specific log categories, only visible if master toggle is enabled
+[Setting category="Misc." name="Debug: Crash Detection" if=Setting_Debug_EnableMaster description="Log details about impact detection."]
+bool Setting_Debug_Crash = false;
+[Setting category="Misc." name="Debug: Sound Loading" if=Setting_Debug_EnableMaster description="Log details about finding and loading sound files."]
+bool Setting_Debug_Loading = false;
+[Setting category="Misc." name="Debug: Sound Playback" if=Setting_Debug_EnableMaster description="Log details about sound selection and playback attempts."]
+bool Setting_Debug_Playback = false;
+[Setting category="Misc." name="Debug: Visual Effect" if=Setting_Debug_EnableMaster description="Log details about visual effect triggering/rendering."]
+bool Setting_Debug_Visual = false;
+[Setting category="Misc." name="Debug: Main Loop" if=Setting_Debug_EnableMaster description="Log details from the main coordination logic."]
+bool Setting_Debug_Main = false;
+
+// --- End of Settings Definitions ---
+
+// --- Debug Logging Namespace ---
+// Provides a centralized way to handle conditional debug printing.
+// Defined *after* settings variables so it can access them.
+namespace Debug {
+    /**
+     * @desc Prints a message to the Openplanet log if the master debug setting
+     *       and the specific category debug setting are both enabled.
+     * @param category The log category (e.g., "Crash", "Playback"). Should match a Setting_Debug_... variable name suffix.
+     * @param message The message to print.
+     */
+    void Print(const string &in category, const string &in message) {
+        if (!Setting_Debug_EnableMaster) return; // Check master toggle first
+
+        // Check if the specific category is enabled
+        bool categoryEnabled = false;
+        if (category == "Crash" && Setting_Debug_Crash) categoryEnabled = true;
+        else if (category == "Loading" && Setting_Debug_Loading) categoryEnabled = true;
+        else if (category == "Playback" && Setting_Debug_Playback) categoryEnabled = true;
+        else if (category == "Visual" && Setting_Debug_Visual) categoryEnabled = true;
+        else if (category == "Main" && Setting_Debug_Main) categoryEnabled = true;
+        // Add other categories here if needed for future debugging
+
+        if (categoryEnabled) {
+            print("[Bonk++ DBG:" + category + "] " + message);
+        }
+    }
+}
+
+// --- Settings UI Callbacks ---
+// Functions called by Openplanet during settings UI rendering or lifecycle events.
+// Must remain global.
+
+/**
+ * @desc Renders custom UI elements at the bottom of the "Sound" settings category.
+ *       Called via the `afterrender` attribute on the last setting in the category.
+ */
+void RenderSoundCategoryFooter() {
+    UI::Separator();
+    UI::TextWrapped("Place custom sound files (.ogg, .wav, .mp3) in the folder below. They will be loaded automatically if 'Enable Custom Sounds' is checked above.");
+
+    // Display the path to the custom sounds folder
+    string customPath = IO::FromStorageFolder("Sounds/");
+    UI::PushItemWidth(-160); // Adjust width for buttons on the same line
+    UI::InputText("##CustomSoundPath", customPath, UI::InputTextFlags::ReadOnly); // Use ## to hide label but provide ID
+    UI::PopItemWidth();
+
+    // Add context menu to copy the path
+    if (UI::IsItemHovered()) {
+        UI::SetTooltip("Right-click to copy path");
+        if (UI::IsMouseClicked(UI::MouseButton::Right)) {
+             IO::SetClipboard(customPath);
+             UI::ShowNotification("Path copied to clipboard!");
+        }
     }
 
-    // --- State Variables ---
-    array<SoundInfo> g_allSounds;
-    int g_orderedSoundIndex = 0;
-    string g_lastPlayedSoundPath = ""; // Stores the full path used for comparison
-    int g_consecutivePlayCount = 0;
-    bool g_isInitialized = false;
+    // Add buttons next to the path
+    UI::SameLine();
+    if (UI::Button("Open Folder")) {
+        // Ensure the folder exists before trying to open it
+        if (!IO::FolderExists(customPath)) {
+             Debug::Print("Loading", "Creating custom sound folder for 'Open Folder' button: " + customPath);
+             // Attempt to create the folder if it doesn't exist
+             try { IO::CreateFolder(customPath); } catch { warn("[Bonk++] Failed to create custom sound folder: " + customPath + " - Error: " + getExceptionInfo()); }
+         }
+        // Attempt to open the folder (might fail silently if folder still doesn't exist)
+        OpenExplorerPath(customPath);
+     }
+     UI::SameLine();
+     if (UI::Button("Reload Sounds")) {
+        // Trigger a reload of sound metadata
+        SoundPlayer::LoadSounds();
+        UI::ShowNotification("Sounds reloaded!"); // Give user feedback
+     }
+}
 
-    // --- Initialization ---
-    void Initialize() {
-        LoadSounds();
-        g_isInitialized = true;
-    }
+/**
+ * @desc Called by Openplanet whenever *any* plugin setting is changed via the UI.
+ *       Reloads sounds to apply changes to default sound toggles or the custom sound toggle.
+ */
+void OnSettingsChanged() {
+    Debug::Print("Loading", "Settings changed, reloading sounds...");
+    SoundPlayer::LoadSounds(); // Reload sound metadata
+}
 
-    // --- Sound Loading ---
-    void LoadSounds() {
-        Debug::Print("Loading", "--- LoadSounds() ---");
-        array<SoundInfo> newSounds;
+/**
+ * @desc Called by Openplanet when settings are loaded (e.g., on game start).
+ *       No custom logic needed here as settings are loaded automatically into global variables.
+ * @param section Provides access to raw settings data if needed.
+ */
+void OnSettingsLoad(Settings::Section& section) {
+    // print("[Bonk++] Settings Loaded."); // Optional: Log if needed
+}
 
-        dictionary defaultSoundSettingsMap;
-        defaultSoundSettingsMap["bonk.wav"] = Setting_Enable_bonkwav;
-        defaultSoundSettingsMap["oof.wav"] = Setting_Enable_oofwav;
-        defaultSoundSettingsMap["vineboom.mp3"] = Setting_Enable_vineboommp3;
-
-        array<string> defaultSoundFiles = defaultSoundSettingsMap.GetKeys();
-        Debug::Print("Loading", "Checking for default sound metadata in 'Sounds/' folder: " + string::Join(defaultSoundFiles, ", "));
-
-        for (uint i = 0; i < defaultSoundFiles.Length; i++) {
-            string filename = defaultSoundFiles[i];
-            // *** CHANGE: Construct the relative path including the subfolder ***
-            string relativePath = "Sounds/" + filename;
-
-            // *** CHANGE: Check existence using the relative path ***
-            IO::FileSource fs(relativePath);
-            if (fs.EOF()) {
-                warn("[Bonk++] Default sound file not found in plugin resources: '" + relativePath + "'");
-                continue;
-            }
-
-            SoundInfo info;
-            // *** CHANGE: Store the full relative path ***
-            info.path = relativePath;
-            info.isCustom = false;
-            // *** Keep displayName as just the filename for clarity ***
-            info.displayName = filename;
-            bool isEnabled = true;
-            if (defaultSoundSettingsMap.Get(filename, isEnabled)) {
-                info.enabled = isEnabled;
-            } else {
-                warn("[Bonk++] Setting mapping missing for default sound: " + filename);
-                info.enabled = true;
-            }
-            info.loadAttempted = false;
-            info.loadFailed = false;
-            @info.sample = null;
-
-            Debug::Print("Loading", "Found default sound metadata: '" + info.displayName + "' at path '" + info.path + "' (Enabled: " + info.enabled + ")");
-            newSounds.InsertLast(info);
-        }
-
-        // Custom sound loading remains unchanged as it looks in PluginStorage/Sounds/
-        if (Setting_EnableCustomSounds) {
-            string storageFolder = IO::FromStorageFolder("");
-            string customSoundFolder = Path::Join(storageFolder, "Sounds");
-            Debug::Print("Loading", "Checking for custom sound metadata in: " + customSoundFolder);
-
-            if (!IO::FolderExists(customSoundFolder)) {
-                Debug::Print("Loading", "... Custom sound folder does not exist, creating.");
-                 try {
-                    IO::CreateFolder(customSoundFolder);
-                 } catch {
-                     warn("[Bonk++] Failed to create custom sound folder: " + customSoundFolder + " - Error: " + getExceptionInfo());
-                 }
-            }
-
-             if(IO::FolderExists(customSoundFolder)) {
-                array<string>@ files = IO::IndexFolder(customSoundFolder, false);
-                if (files !is null && files.Length > 0) {
-                    Debug::Print("Loading", "Found " + files.Length + " potential custom sound files.");
-                    for (uint i = 0; i < files.Length; i++) {
-                        string fullPath = files[i];
-                        string filename = Path::GetFileName(fullPath);
-                        string extension = Path::GetExtension(filename).ToLower();
-
-                        if (extension == ".ogg" || extension == ".wav" || extension == ".mp3") {
-                            Debug::Print("Loading", "Processing potential sound metadata: " + filename);
-                            SoundInfo info;
-                            info.path = fullPath;
-                            info.isCustom = true;
-                            info.displayName = filename;
-                            info.enabled = true;
-                            info.loadAttempted = false;
-                            info.loadFailed = false;
-                            @info.sample = null;
-                            Debug::Print("Loading", "  - Path: " + info.path);
-                            newSounds.InsertLast(info);
-                        } else {
-                            Debug::Print("Loading", "Skipping non-supported file type: " + filename);
-                        }
-                    }
-                } else {
-                    Debug::Print("Loading", "No files found in custom sound folder: " + customSoundFolder);
-                }
-            } else {
-                 Debug::Print("Loading", "Custom sound folder still does not exist after attempting creation: " + customSoundFolder);
-                 warn("[Bonk++] Custom sound folder could not be accessed or created: " + customSoundFolder);
-            }
-        } else {
-            Debug::Print("Loading", "Custom sounds disabled by setting.");
-        }
-
-        // Sample Cache Invalidation (unchanged)
-        for (uint i = 0; i < g_allSounds.Length; i++) {
-            @g_allSounds[i].sample = null;
-        }
-
-        g_allSounds = newSounds;
-        g_lastPlayedSoundPath = "";
-        g_consecutivePlayCount = 0;
-        g_orderedSoundIndex = 0;
-        Debug::Print("Loading", "Finished LoadSounds. Total sound metadata entries: " + g_allSounds.Length);
-        Debug::Print("Loading", "--------------------");
-    }
-
-    // --- Sound Playback ---
-    // which LoadSounds() now correctly sets to include the "Sounds/" prefix for defaults.
-    void PlayBonkSound() {
-         if (!g_isInitialized) Initialize();
-
-        Debug::Print("Playback", "--- PlayBonkSound() ---");
-        array<uint> enabledIndices;
-        for (uint i = 0; i < g_allSounds.Length; i++) {
-            if (g_allSounds[i].enabled && !g_allSounds[i].loadFailed) {
-                enabledIndices.InsertLast(i);
-            }
-        }
-        Debug::Print("Playback", "Found " + enabledIndices.Length + " enabled sounds.");
-
-        if (enabledIndices.Length == 0) {
-            warn("[Bonk++] No enabled sounds found to play.");
-            Debug::Print("Playback", "-----------------------");
-            return;
-        }
-
-        uint selectedIndexInMasterList = uint(-1);
-        bool soundSelected = false;
-
-        if (Setting_SoundPlaybackMode == SoundMode::Random) {
-            uint potentialEnabledIndex = Math::Rand(0, enabledIndices.Length);
-            uint potentialMasterIndex = enabledIndices[potentialEnabledIndex];
-            string potentialPath = g_allSounds[potentialMasterIndex].path; // This path now includes "Sounds/" for defaults
-
-            if (enabledIndices.Length > 1 && potentialPath == g_lastPlayedSoundPath && g_consecutivePlayCount >= int(Setting_MaxConsecutiveRepeats)) {
-                Debug::Print("Playback", "Constraint hit: '" + g_allSounds[potentialMasterIndex].displayName + "' played " + g_consecutivePlayCount + " times. Re-selecting.");
-                int retryCount = 0; const int MAX_RETRIES = 10;
-                while (potentialPath == g_lastPlayedSoundPath && retryCount < MAX_RETRIES) {
-                    potentialEnabledIndex = Math::Rand(0, enabledIndices.Length);
-                    potentialMasterIndex = enabledIndices[potentialEnabledIndex];
-                    potentialPath = g_allSounds[potentialMasterIndex].path;
-                    retryCount++;
-                }
-                if (potentialPath == g_lastPlayedSoundPath) {
-                    warn("[Bonk++] Could not select different random sound after " + MAX_RETRIES + " retries.");
-                }
-            }
-            selectedIndexInMasterList = potentialMasterIndex;
-            soundSelected = true;
-            Debug::Print("Playback", "Random mode selected index: " + potentialEnabledIndex + " (maps to g_allSounds index " + selectedIndexInMasterList + "). Path: " + g_allSounds[selectedIndexInMasterList].path);
-
-        } else { // Ordered Mode
-            int count = int(enabledIndices.Length);
-            g_orderedSoundIndex = g_orderedSoundIndex % count;
-            if (g_orderedSoundIndex < count) {
-                 selectedIndexInMasterList = enabledIndices[g_orderedSoundIndex];
-                 soundSelected = true;
-                 Debug::Print("Playback", "Ordered mode selected index: " + g_orderedSoundIndex + " (maps to g_allSounds index " + selectedIndexInMasterList + "). Path: " + g_allSounds[selectedIndexInMasterList].path);
-                 g_orderedSoundIndex = (g_orderedSoundIndex + 1) % count;
-             } else {
-                 warn("[Bonk++] Ordered index calculation error.");
-             }
-        }
-
-        if (!soundSelected || selectedIndexInMasterList >= g_allSounds.Length) {
-            warn("[Bonk++] Failed to select a valid sound index.");
-            Debug::Print("Playback", "-----------------------");
-            return;
-        }
-
-        // Update anti-repeat state (uses the full path)
-        string selectedPath = g_allSounds[selectedIndexInMasterList].path;
-        if (selectedPath == g_lastPlayedSoundPath) {
-            g_consecutivePlayCount++;
-        } else {
-            g_lastPlayedSoundPath = selectedPath;
-            g_consecutivePlayCount = 1;
-        }
-        Debug::Print("Playback", "Consecutive count for '" + g_allSounds[selectedIndexInMasterList].displayName + "': " + g_consecutivePlayCount);
-
-        // Load audio sample on demand
-        SoundInfo infoCopy = g_allSounds[selectedIndexInMasterList];
-        if (infoCopy.sample is null && !infoCopy.loadAttempted) {
-            Debug::Print("Playback", "Sample for '" + infoCopy.displayName + "' is null, attempting to load from path: " + infoCopy.path);
-            infoCopy.loadAttempted = true;
-            Audio::Sample@ loadedSample = null;
-            try {
-                // LoadSampleFromAbsolutePath works for custom sounds (which have absolute paths)
-                // LoadSample works for defaults (which now have relative paths like "Sounds/bonk.wav")
-                if (infoCopy.isCustom) {
-                    @loadedSample = Audio::LoadSampleFromAbsolutePath(infoCopy.path);
-                } else {
-                    @loadedSample = Audio::LoadSample(infoCopy.path); // Use the path like "Sounds/bonk.wav"
-                }
-             } catch {
-                 warn("[Bonk++] EXCEPTION during sound loading for: '" + infoCopy.path + "' - Error: " + getExceptionInfo());
-                 @loadedSample = null;
-             }
-
-            @infoCopy.sample = loadedSample;
-
-            if (infoCopy.sample is null) {
-                warn("[Bonk++] Failed to load sample ON DEMAND for: '" + infoCopy.path + "'");
-                infoCopy.loadFailed = true;
-            } else {
-                Debug::Print("Playback", "... Success.");
-                infoCopy.loadFailed = false;
-            }
-            g_allSounds[selectedIndexInMasterList] = infoCopy;
-        }
-
-        // Play the sound
-        if (g_allSounds[selectedIndexInMasterList].sample !is null && !g_allSounds[selectedIndexInMasterList].loadFailed) {
-            Debug::Print("Playback", "Attempting to play: '" + g_allSounds[selectedIndexInMasterList].displayName + "' with volume " + Setting_BonkVolume + "%");
-             Audio::Voice@ voice = null;
-             try {
-                 @voice = Audio::Play(g_allSounds[selectedIndexInMasterList].sample);
-             } catch {
-                 warn("[Bonk++] EXCEPTION during Audio::Play for: '" + g_allSounds[selectedIndexInMasterList].path + "' - Error: " + getExceptionInfo());
-                 @voice = null;
-             }
-
-            if (voice !is null) {
-                 try {
-                    voice.SetGain(float(Setting_BonkVolume) / 100.0f);
-                    Debug::Print("Playback", "Sound played successfully.");
-                 } catch {
-                     warn("[Bonk++] EXCEPTION during voice.SetGain for: '" + g_allSounds[selectedIndexInMasterList].path + "' - Error: " + getExceptionInfo());
-                 }
-            } else {
-                warn("[Bonk++] Audio::Play returned null voice for: '" + g_allSounds[selectedIndexInMasterList].path + "'.");
-            }
-        } else {
-            if (!g_allSounds[selectedIndexInMasterList].loadFailed) {
-                warn("[Bonk++] Cannot play sound, sample handle is null or load failed. Path: '" + g_allSounds[selectedIndexInMasterList].path + "'");
-            } else {
-                 Debug::Print("Playback", "Skipping playback for previously failed sound: '" + g_allSounds[selectedIndexInMasterList].displayName + "'");
-            }
-        }
-        Debug::Print("Playback", "-----------------------");
-    }
-
-} // namespace SoundPlayer
+/**
+ * @desc Called by Openplanet when settings are saved (e.g., on game exit or closing settings).
+ *       No custom logic needed here as settings are saved automatically from global variables.
+ * @param section Provides access to write raw settings data if needed.
+ */
+void OnSettingsSave(Settings::Section& section) {
+    // print("[Bonk++] Settings Saved."); // Optional: Log if needed
+}
