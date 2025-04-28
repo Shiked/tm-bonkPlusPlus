@@ -1,5 +1,6 @@
 // --- soundPlayer.as ---
 // Manages loading, selecting, and playing bonk sound effects.
+// Updated to load default sounds from the "Sounds/" subfolder.
 
 #include "settings" // Needed for settings access and Debug namespace
 
@@ -7,25 +8,25 @@ namespace SoundPlayer {
 
     // --- Sound Metadata Class ---
     class SoundInfo {
-        string path;
+        string path;             // Full relative path (e.g., "Sounds/bonk.wav" or absolute path for custom)
         Audio::Sample@ sample = null;
         bool enabled = true;
         bool isCustom = false;
-        string displayName;
+        string displayName;      // Base filename (e.g., "bonk.wav") for UI/logs
         bool loadAttempted = false;
         bool loadFailed = false;
     }
 
     // --- State Variables ---
-    array<SoundInfo> g_allSounds; // Master list
+    array<SoundInfo> g_allSounds;
     int g_orderedSoundIndex = 0;
-    string g_lastPlayedSoundPath = "";
+    string g_lastPlayedSoundPath = ""; // Stores the full path used for comparison
     int g_consecutivePlayCount = 0;
     bool g_isInitialized = false;
 
     // --- Initialization ---
     void Initialize() {
-        LoadSounds(); // Initial load
+        LoadSounds();
         g_isInitialized = true;
     }
 
@@ -40,21 +41,22 @@ namespace SoundPlayer {
         defaultSoundSettingsMap["vineboom.mp3"] = Setting_Enable_vineboommp3;
 
         array<string> defaultSoundFiles = defaultSoundSettingsMap.GetKeys();
-        Debug::Print("Loading", "Checking for default sound metadata: " + string::Join(defaultSoundFiles, ", "));
+        Debug::Print("Loading", "Checking for default sound metadata in 'Sounds/' folder: " + string::Join(defaultSoundFiles, ", "));
 
         for (uint i = 0; i < defaultSoundFiles.Length; i++) {
             string filename = defaultSoundFiles[i];
-            // Check if file exists relative to the plugin root
-            // NOTE: This assumes plugin files are accessible via relative paths directly.
-            //       Using IO::FileSource is a good way to verify existence.
-             IO::FileSource fs(filename);
-             if (fs.EOF()) { // Check if file source is invalid/empty
-                 warn("[Bonk++] Default sound file not found in plugin resources: '" + filename + "'");
-                 continue; // Skip this file
-             }
+            // *** Construct the relative path including the subfolder ***
+            string relativePath = "Sounds/" + filename;
+
+            IO::FileSource fs(relativePath);
+            if (fs.EOF()) {
+                warn("[Bonk++] Default sound file not found in plugin resources: '" + relativePath + "'");
+                continue;
+            }
 
             SoundInfo info;
-            info.path = filename;
+            // *** Store the full relative path ***
+            info.path = relativePath;
             info.isCustom = false;
             info.displayName = filename;
             bool isEnabled = true;
@@ -68,13 +70,13 @@ namespace SoundPlayer {
             info.loadFailed = false;
             @info.sample = null;
 
-            Debug::Print("Loading", "Found default sound metadata: '" + filename + "' (Enabled: " + info.enabled + ")");
+            Debug::Print("Loading", "Found default sound metadata: '" + info.displayName + "' at path '" + info.path + "' (Enabled: " + info.enabled + ")");
             newSounds.InsertLast(info);
         }
 
         if (Setting_EnableCustomSounds) {
-            string storageFolder = IO::FromStorageFolder(""); // Gets base storage folder path
-            string customSoundFolder = Path::Join(storageFolder, "Sounds"); // Construct path to Sounds subfolder
+            string storageFolder = IO::FromStorageFolder("");
+            string customSoundFolder = Path::Join(storageFolder, "Sounds");
             Debug::Print("Loading", "Checking for custom sound metadata in: " + customSoundFolder);
 
             if (!IO::FolderExists(customSoundFolder)) {
@@ -86,9 +88,8 @@ namespace SoundPlayer {
                  }
             }
 
-             // Defensive check after potential creation attempt
              if(IO::FolderExists(customSoundFolder)) {
-                array<string>@ files = IO::IndexFolder(customSoundFolder, false); // false = non-recursive
+                array<string>@ files = IO::IndexFolder(customSoundFolder, false);
                 if (files !is null && files.Length > 0) {
                     Debug::Print("Loading", "Found " + files.Length + " potential custom sound files.");
                     for (uint i = 0; i < files.Length; i++) {
@@ -102,7 +103,7 @@ namespace SoundPlayer {
                             info.path = fullPath;
                             info.isCustom = true;
                             info.displayName = filename;
-                            info.enabled = true; // Custom sounds are always enabled if master toggle is on
+                            info.enabled = true;
                             info.loadAttempted = false;
                             info.loadFailed = false;
                             @info.sample = null;
@@ -123,28 +124,22 @@ namespace SoundPlayer {
             Debug::Print("Loading", "Custom sounds disabled by setting.");
         }
 
-        // --- Sample Cache Invalidation ---
-        // Before replacing g_allSounds, release handles to samples that are no longer needed
-        // to allow Openplanet's audio system to potentially free memory.
-        // NOTE: This assumes Audio::Sample uses reference counting. If a sample handle
-        //       is still present in `newSounds`, its ref count won't drop to zero here.
+        // Sample Cache Invalidation 
         for (uint i = 0; i < g_allSounds.Length; i++) {
-            @g_allSounds[i].sample = null; // Release the reference
+            @g_allSounds[i].sample = null;
         }
-        // --- End Cache Invalidation ---
 
-
-        g_allSounds = newSounds; // Replace master list
-        g_lastPlayedSoundPath = ""; // Reset playback state
+        g_allSounds = newSounds;
+        g_lastPlayedSoundPath = "";
         g_consecutivePlayCount = 0;
-        g_orderedSoundIndex = 0; // Reset ordered index too
+        g_orderedSoundIndex = 0;
         Debug::Print("Loading", "Finished LoadSounds. Total sound metadata entries: " + g_allSounds.Length);
         Debug::Print("Loading", "--------------------");
     }
 
     // --- Sound Playback ---
     void PlayBonkSound() {
-         if (!g_isInitialized) Initialize(); // Safety init
+         if (!g_isInitialized) Initialize();
 
         Debug::Print("Playback", "--- PlayBonkSound() ---");
         array<uint> enabledIndices;
@@ -167,7 +162,7 @@ namespace SoundPlayer {
         if (Setting_SoundPlaybackMode == SoundMode::Random) {
             uint potentialEnabledIndex = Math::Rand(0, enabledIndices.Length);
             uint potentialMasterIndex = enabledIndices[potentialEnabledIndex];
-            string potentialPath = g_allSounds[potentialMasterIndex].path;
+            string potentialPath = g_allSounds[potentialMasterIndex].path; // This path now includes "Sounds/" for defaults
 
             if (enabledIndices.Length > 1 && potentialPath == g_lastPlayedSoundPath && g_consecutivePlayCount >= int(Setting_MaxConsecutiveRepeats)) {
                 Debug::Print("Playback", "Constraint hit: '" + g_allSounds[potentialMasterIndex].displayName + "' played " + g_consecutivePlayCount + " times. Re-selecting.");
@@ -184,7 +179,7 @@ namespace SoundPlayer {
             }
             selectedIndexInMasterList = potentialMasterIndex;
             soundSelected = true;
-            Debug::Print("Playback", "Random mode selected index: " + potentialEnabledIndex + " (maps to g_allSounds index " + selectedIndexInMasterList + ").");
+            Debug::Print("Playback", "Random mode selected index: " + potentialEnabledIndex + " (maps to g_allSounds index " + selectedIndexInMasterList + "). Path: " + g_allSounds[selectedIndexInMasterList].path);
 
         } else { // Ordered Mode
             int count = int(enabledIndices.Length);
@@ -192,7 +187,7 @@ namespace SoundPlayer {
             if (g_orderedSoundIndex < count) {
                  selectedIndexInMasterList = enabledIndices[g_orderedSoundIndex];
                  soundSelected = true;
-                 Debug::Print("Playback", "Ordered mode selected index: " + g_orderedSoundIndex + " (maps to g_allSounds index " + selectedIndexInMasterList + ").");
+                 Debug::Print("Playback", "Ordered mode selected index: " + g_orderedSoundIndex + " (maps to g_allSounds index " + selectedIndexInMasterList + "). Path: " + g_allSounds[selectedIndexInMasterList].path);
                  g_orderedSoundIndex = (g_orderedSoundIndex + 1) % count;
              } else {
                  warn("[Bonk++] Ordered index calculation error.");
@@ -205,6 +200,7 @@ namespace SoundPlayer {
             return;
         }
 
+        // Update anti-repeat state 
         string selectedPath = g_allSounds[selectedIndexInMasterList].path;
         if (selectedPath == g_lastPlayedSoundPath) {
             g_consecutivePlayCount++;
@@ -215,24 +211,25 @@ namespace SoundPlayer {
         Debug::Print("Playback", "Consecutive count for '" + g_allSounds[selectedIndexInMasterList].displayName + "': " + g_consecutivePlayCount);
 
         // Load audio sample on demand
-        // Create a temporary copy to modify, then assign back
         SoundInfo infoCopy = g_allSounds[selectedIndexInMasterList];
         if (infoCopy.sample is null && !infoCopy.loadAttempted) {
-            Debug::Print("Playback", "Sample for '" + infoCopy.displayName + "' is null, attempting to load...");
+            Debug::Print("Playback", "Sample for '" + infoCopy.displayName + "' is null, attempting to load from path: " + infoCopy.path);
             infoCopy.loadAttempted = true;
             Audio::Sample@ loadedSample = null;
             try {
+                // LoadSampleFromAbsolutePath works for custom sounds (which have absolute paths)
+                // LoadSample works for defaults (which now have relative paths like "Sounds/bonk.wav")
                 if (infoCopy.isCustom) {
                     @loadedSample = Audio::LoadSampleFromAbsolutePath(infoCopy.path);
                 } else {
-                    @loadedSample = Audio::LoadSample(infoCopy.path);
+                    @loadedSample = Audio::LoadSample(infoCopy.path); // Use the path like "Sounds/bonk.wav"
                 }
              } catch {
                  warn("[Bonk++] EXCEPTION during sound loading for: '" + infoCopy.path + "' - Error: " + getExceptionInfo());
-                 @loadedSample = null; // Ensure it's null on exception
+                 @loadedSample = null;
              }
 
-            @infoCopy.sample = loadedSample; // Assign loaded (or null) handle to copy
+            @infoCopy.sample = loadedSample;
 
             if (infoCopy.sample is null) {
                 warn("[Bonk++] Failed to load sample ON DEMAND for: '" + infoCopy.path + "'");
@@ -241,10 +238,10 @@ namespace SoundPlayer {
                 Debug::Print("Playback", "... Success.");
                 infoCopy.loadFailed = false;
             }
-            g_allSounds[selectedIndexInMasterList] = infoCopy; // Put the updated copy back
+            g_allSounds[selectedIndexInMasterList] = infoCopy;
         }
 
-        // Play the sound using the (potentially just loaded) sample handle from the master list
+        // Play the sound
         if (g_allSounds[selectedIndexInMasterList].sample !is null && !g_allSounds[selectedIndexInMasterList].loadFailed) {
             Debug::Print("Playback", "Attempting to play: '" + g_allSounds[selectedIndexInMasterList].displayName + "' with volume " + Setting_BonkVolume + "%");
              Audio::Voice@ voice = null;
@@ -252,7 +249,7 @@ namespace SoundPlayer {
                  @voice = Audio::Play(g_allSounds[selectedIndexInMasterList].sample);
              } catch {
                  warn("[Bonk++] EXCEPTION during Audio::Play for: '" + g_allSounds[selectedIndexInMasterList].path + "' - Error: " + getExceptionInfo());
-                 @voice = null; // Ensure null on exception
+                 @voice = null;
              }
 
             if (voice !is null) {
@@ -266,7 +263,6 @@ namespace SoundPlayer {
                 warn("[Bonk++] Audio::Play returned null voice for: '" + g_allSounds[selectedIndexInMasterList].path + "'.");
             }
         } else {
-            // Only warn if we haven't already logged a load failure for this sound
             if (!g_allSounds[selectedIndexInMasterList].loadFailed) {
                 warn("[Bonk++] Cannot play sound, sample handle is null or load failed. Path: '" + g_allSounds[selectedIndexInMasterList].path + "'");
             } else {
