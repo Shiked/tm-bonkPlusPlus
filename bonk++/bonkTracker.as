@@ -1,46 +1,47 @@
 // --- bonkTracker.as ---
 // Core logic for detecting bonks based on physics changes (jerk calculation)
 // and managing related state like debounce timers.
+// V3.9 - Simplified detection: Removed preliminary deceleration check, relies solely on Jerk Sensitivity.
 
 namespace BonkTracker {
 
+    // --- Constants ---
+    const uint RESPAWN_COOLDOWN_MS = 350;
+    const float ZERO_SPEED_THRESHOLD = 0.1f;
+
     // --- State Variables ---
-    // Store physics data from the previous frame for comparison
-    vec3 g_previousVel = vec3(0, 0, 0);         // Vehicle velocity last frame
-    float g_previousSpeed = 0.0f;               // Vehicle speed last frame
-    vec3 g_previousVdt = vec3(0, 0, 0);         // Filtered velocity change last frame
-    uint64 g_lastBonkTime = 0;                  // Timestamp of the last detected bonk (for debouncing)
-    bool g_isInitialized = false;               // Flag to ensure state is reset on first run/enable
+    vec3 g_previousVel = vec3(0, 0, 0);
+    float g_previousSpeed = 0.0f;
+    vec3 g_previousVdt = vec3(0, 0, 0); // Filtered velocity change from PREVIOUS frame
+    uint64 g_lastBonkTime = 0;
+    bool g_isInitialized = false;
+    bool g_isInRespawnCooldown = false;
+    uint64 g_respawnCooldownEndTime = 0;
 
     // --- Bonk Event Info ---
-    // A simple class to pass information about a detected bonk back to the main module.
-    // Can be expanded later to include more details (e.g., impact surface, speed).
     class BonkEventInfo {
-        float jerkMagnitude = 0.0f; // The calculated jerk value that triggered the bonk
+        float jerkMagnitude = 0.0f;
+        float speed = 0.0f;
+        // Removed decelerationMagnitude as it's no longer a primary check
     }
 
     // --- Initialization ---
-    /**
-     * @desc Resets the tracker's state variables. Called on plugin load/enable.
-     */
     void Initialize() {
         g_previousVel = vec3(0, 0, 0);
         g_previousSpeed = 0.0f;
         g_previousVdt = vec3(0, 0, 0);
-        g_lastBonkTime = 0; // Reset debounce
+        g_lastBonkTime = 0;
+        g_isInRespawnCooldown = false;
+        g_respawnCooldownEndTime = 0;
         g_isInitialized = true;
-        Debug::Print("Crash", "BonkTracker Initialized/Reset.");
+        if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
+            Debug::Print("Crash", "BonkTracker Initialized/Reset.");
+        }
     }
 
     // --- Helper Functions ---
-    /**
-     * @desc Counts how many wheels have contact with a surface.
-     * @param visState The current vehicle visualization state.
-     * @return Integer from 0 to 4 indicating the number of wheels grounded.
-     */
     int GetWheelContactCount(CSceneVehicleVisState@ visState) {
         if (visState is null) return 0;
-        // Sum 1 for each wheel whose contact material is not the "null" type
         return
             (visState.FLGroundContactMaterial != CSceneVehicleVisState::EPlugSurfaceMaterialId::XXX_Null ? 1 : 0) +
             (visState.FRGroundContactMaterial != CSceneVehicleVisState::EPlugSurfaceMaterialId::XXX_Null ? 1 : 0) +
@@ -49,130 +50,154 @@ namespace BonkTracker {
     }
 
     // --- Core Detection Logic ---
-    /**
-     * @desc Performs bonk detection based on physics changes from the previous frame.
-     *       Called every frame by main.as -> Update().
-     * @param dt Delta time since the last frame in milliseconds.
-     * @return A handle to a BonkEventInfo object if a bonk was detected this frame, otherwise null.
-     */
     BonkEventInfo@ UpdateDetection(float dt) {
-        if (!g_isInitialized) Initialize(); // Safety check
+        if (!g_isInitialized) Initialize();
 
-        // Get current vehicle state (requires VehicleState plugin dependency)
         CSceneVehicleVisState@ visState = VehicleState::ViewingPlayerState();
         if (visState is null) {
-            // No vehicle state available, reset internal state and return
-            Initialize(); // Resetting ensures we don't use stale data on next valid frame
+            if (g_isInRespawnCooldown || g_isInitialized) { Initialize(); }
             return null;
         }
 
-        // Get current physics data
         vec3 currentVel = visState.WorldVel;
         float currentSpeed = currentVel.Length();
-        float dtSeconds = dt > 0.0f ? (dt / 1000.0f) : 0.016f; // Convert dt to seconds, handle dt=0 case
+        float dtSeconds = dt > 0.0f ? (dt / 1000.0f) : 0.016f;
+        uint64 currentTime = Time::Now;
 
-        // --- Respawn Check (Optional Dependency) ---
-        // If MLFeed/MLHook are available, use them for a more reliable immediate respawn check.
-        // This helps prevent false positives right after respawning.
+        bool skipDetectionThisFrame = false;
+        bool justFinishedCooldown = false;
+
+        // --- Respawn State Check & Cooldown Management (Same as V3.7) ---
+        bool mlFeedSpawned = true;
         #if DEPENDENCY_MLFEEDRACEDATA && DEPENDENCY_MLHOOK
             auto mlf = MLFeed::GetRaceData_V3();
             if (mlf !is null) {
                  auto plf = mlf.GetPlayer_V3(MLFeed::LocalPlayersName);
                  if (plf !is null) {
-                    const uint INVALID_TIME = 0xFFFFFFFF; // Constant used by MLFeed
-                    bool lastTimeValid = (plf.LastRespawnRaceTime < INVALID_TIME);
-                    bool currentTimeValid = (plf.CurrentRaceTime < INVALID_TIME);
-                    // Check if respawn happened very recently (within 100ms)
-                    bool isRecentRespawn = (lastTimeValid && currentTimeValid && plf.CurrentRaceTime < (plf.LastRespawnRaceTime + uint(100)));
+                     mlFeedSpawned = (plf.spawnStatus == MLFeed::SpawnStatus::Spawned);
+                    if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
+                         Debug::Print("Crash", "MLFeed Status: spawnStatus=" + plf.spawnStatus + ", g_isInRespawnCooldown=" + g_isInRespawnCooldown + ", cooldownEndTime=" + g_respawnCooldownEndTime + ", currentTime="+currentTime);
+                    }
+                 } else { if (Setting_Debug_EnableMaster && Setting_Debug_Crash) Debug::Print("Crash", "MLFeed Player Data is null."); }
+            } else { if (Setting_Debug_EnableMaster && Setting_Debug_Crash) Debug::Print("Crash", "MLFeed Race Data is null."); }
+        #endif
 
-                    // If player isn't fully spawned OR just respawned, reset state and exit
-                    if (plf.spawnStatus != MLFeed::SpawnStatus::Spawned || isRecentRespawn) {
-                        Debug::Print("Crash", "MLFeed detected Not Spawned ("+plf.spawnStatus+") or Recent Respawn ("+isRecentRespawn+"). Resetting state.");
-                        Initialize(); // Reset physics state
-                        g_lastBonkTime = Time::Now; // Reset debounce too
-                        return null; // No bonk detection this frame
+        if (!mlFeedSpawned) { // Not spawned
+            if (!g_isInRespawnCooldown) { g_isInRespawnCooldown = true; g_respawnCooldownEndTime = 0; }
+            skipDetectionThisFrame = true;
+        } else { // Spawned
+            if (g_isInRespawnCooldown) {
+                if (g_respawnCooldownEndTime == 0) { // Just spawned, start timer
+                     g_respawnCooldownEndTime = currentTime + RESPAWN_COOLDOWN_MS;
+                     skipDetectionThisFrame = true;
+                } else { // Timer running
+                    if (currentTime < g_respawnCooldownEndTime) { // Still cooling down
+                        skipDetectionThisFrame = true;
+                    } else { // Cooldown ended
+                        g_isInRespawnCooldown = false;
+                        g_respawnCooldownEndTime = 0;
+                        justFinishedCooldown = true;
                     }
                 }
             }
-        #endif
-        // --- End of Respawn Check ---
-
-        // --- Bonk Detection Algorithm ---
-
-        // 1. Preliminary Acceleration Check: Is there significant deceleration?
-        //    Compares instantaneous deceleration to a dynamic threshold based on speed.
-        float currentAccel = (dtSeconds > 0) ? Math::Max(0.0f, (g_previousSpeed - currentSpeed) / dtSeconds) : 0.0f;
-        float dynamicThreshold = Setting_BonkThreshold + g_previousSpeed * 1.5f; // Threshold increases with speed
-        bool preliminaryBonkDetected = currentAccel > dynamicThreshold;
-
-        // 2. Filtered Jerk Calculation: How abrupt was the change in filtered velocity?
-        //    (Only calculate fully if preliminary check passed or debug enabled, for performance)
-        float jerkMagnitude = 0.0f;
-        vec3 vdt_Filtered = vec3(0,0,0); // Filtered velocity change for *this* frame
-
-        if (preliminaryBonkDetected || (Setting_Debug_EnableMaster && Setting_Debug_Crash)) {
-            vec3 vdt = currentVel - g_previousVel; // Raw velocity change
-
-            // Filter 1: Remove vertical component (bumps)
-            float vdtUp = Math::Dot(vdt, visState.Up);
-            vec3 vdt_NoVertical = vdt - visState.Up * vdtUp;
-            vdt_Filtered = vdt_NoVertical; // Start with vertically filtered change
-
-            // Filter 2: Remove forward component (braking) IF the change is forwards
-            // This is the part that ignores most reverse impacts
-            float forwardComponent = Math::Dot(vdt_NoVertical, visState.Dir);
-            if (forwardComponent > 0) {
-                vdt_Filtered = vdt_NoVertical - visState.Dir * forwardComponent;
-            }
-
-            // Calculate Jerk: Change between this frame's filtered vdt and last frame's
-            vec3 vdtdt = vdt_Filtered - g_previousVdt; // g_previousVdt is the vdt_Filtered from LAST frame
-            jerkMagnitude = vdtdt.Length(); // Magnitude of the jerk vector
-
-            // Debug log if preliminary check passed
-            if (preliminaryBonkDetected) {
-                 Debug::Print("Crash", "Preliminary Detect Passed! Accel: " + currentAccel + ", DynThresh: " + dynamicThreshold);
-                 Debug::Print("Crash", "  -> Jerk Mag (vdtdt.Length): " + jerkMagnitude);
-            }
         }
 
-        // 3. Sensitivity Check: Is the jerk magnitude above the threshold based on wheel contact?
+        // --- Update State if Skipping or Cooldown Just Finished ---
+        if (skipDetectionThisFrame || justFinishedCooldown) {
+             if (Setting_Debug_EnableMaster && Setting_Debug_Crash) Debug::Print("Crash", "[State Update] Updating prev state (Skip="+skipDetectionThisFrame+", JustFinishedCooldown="+justFinishedCooldown+"). CurrentSpeed="+currentSpeed);
+             g_previousVel = currentVel;
+             g_previousSpeed = currentSpeed;
+             g_previousVdt = vec3(0,0,0);
+        }
+
+        // --- Early Exit if Skipping ---
+        if (skipDetectionThisFrame) {
+            if (Setting_Debug_EnableMaster && Setting_Debug_Crash) Debug::Print("Crash", "Final Skip Decision: Skipping frame (Respawn/Cooldown).");
+            return null;
+        }
+        // --- End Skip Logic ---
+
+        // --- End Respawn/Cooldown Logic ---
+
+
+        // --- Bonk Detection Algorithm (Simplified) ---
+
+        // Step 1: Calculate Filtered Jerk Magnitude (Always calculate if not skipping)
+        vec3 vdt = currentVel - g_previousVel;
+        float vdtUpComponent = Math::Dot(vdt, visState.Up);
+        vec3 vdt_NoVertical = vdt - visState.Up * vdtUpComponent;
+        vec3 vdt_Filtered = vdt_NoVertical;
+        float forwardComponent = Math::Dot(vdt_NoVertical, visState.Dir);
+        if (forwardComponent > 0) { vdt_Filtered = vdt_NoVertical - visState.Dir * forwardComponent; }
+        vec3 vdtdt = vdt_Filtered - g_previousVdt;
+        float jerkMagnitude = vdtdt.Length();
+
+        // Step 2: Perform Jerk Sensitivity Check
         int wheelContactCount = GetWheelContactCount(visState);
         float sensitivityThreshold = (wheelContactCount == 4) ? Setting_SensitivityGrounded : Setting_SensitivityAirborne;
         bool sensitivityOk = jerkMagnitude > sensitivityThreshold;
 
-        // 4. Debounce & Speed Check: Has enough time passed since the last bonk? Was the car moving fast enough before?
-        uint64 currentTime = Time::Now;
+        // Log Jerk check always if debugging crash detection
+         if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
+            Debug::Print("Crash", "[Jerk Sensitivity Check] Jerk: " + jerkMagnitude + " > Threshold (" + (wheelContactCount == 4 ? "Ground" : "Air") + "): " + sensitivityThreshold + " ? -> " + sensitivityOk);
+         }
+
+        // Step 3: Debounce and Minimum Speed Check
         bool debounceOk = (currentTime - g_lastBonkTime) > Setting_BonkDebounce;
-        bool speedOk = g_previousSpeed > 10.0f; // Arbitrary minimum speed threshold
+        bool speedOk = g_previousSpeed > 10.0f; // Check previous speed was significant
 
-        // 5. Final Decision: If all checks pass, it's a bonk!
-        BonkEventInfo@ bonkEvent = null; // Prepare return value (null by default)
-        if (preliminaryBonkDetected && sensitivityOk && speedOk && debounceOk) {
-            // Bonk detected!
-            g_lastBonkTime = currentTime; // Reset debounce timer
-            Debug::Print("Crash", "Bonk CONFIRMED! JerkMag: " + jerkMagnitude + " > SensThresh: " + sensitivityThreshold);
+        // Step 4: Final Decision - Relying on Jerk Sensitivity
+        BonkEventInfo@ bonkEvent = null;
+        // *** REMOVED preliminaryDecelOk from the condition ***
+        bool allConditionsMet = sensitivityOk && speedOk && debounceOk;
 
-            // Create info object to return to main module
-            @bonkEvent = BonkEventInfo();
-            bonkEvent.jerkMagnitude = jerkMagnitude;
-            // Can add more info here later (e.g., bonkEvent.speed = g_previousSpeed;)
+        if (allConditionsMet) {
+            // Check for zero speed override (respawn)
+            if (currentSpeed < ZERO_SPEED_THRESHOLD) {
+                 if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
+                    Debug::Print("Crash", "Bonk OVERRIDDEN: Conditions met, but CurrentSpeed (" + currentSpeed + ") is near zero. Likely respawn.");
+                 }
+            } else {
+                // All conditions met, including non-zero speed. Confirm bonk.
+                g_lastBonkTime = currentTime;
+                float speedToStoreKmh = g_previousSpeed * 3.6f;
+                 if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
+                    // Removed DecelOK from log message
+                    Debug::Print("Crash", "Bonk CONFIRMED! Speed: " + speedToStoreKmh + " km/h. JerkOK: " + sensitivityOk + " (Val:" + jerkMagnitude + ", Thresh:" + sensitivityThreshold + "). DebounceOK: " + debounceOk + ". SpeedOK: " + speedOk);
+                 }
 
-        } else if (preliminaryBonkDetected && Setting_Debug_Crash) {
-            // Log reasons why a potential bonk was ignored (if debug enabled)
-            if (!sensitivityOk) Debug::Print("Crash", "Bonk IGNORED: Jerk Magnitude (" + jerkMagnitude + ") <= Sensitivity Threshold (" + sensitivityThreshold + ")");
-            else if (!speedOk) Debug::Print("Crash", "Bonk IGNORED: Previous Speed (" + g_previousSpeed + ") <= 10");
-            else if (!debounceOk) Debug::Print("Crash", "Bonk IGNORED: Debounce Active (LastBonk: " + g_lastBonkTime + ", Now: " + currentTime + ")");
-            else Debug::Print("Crash", "Bonk IGNORED: Unknown reason (Conditions: prelim=" + preliminaryBonkDetected + ", sens=" + sensitivityOk + ", speed=" + speedOk + ", debounce=" + debounceOk + ")");
+                @bonkEvent = BonkEventInfo();
+                bonkEvent.jerkMagnitude = jerkMagnitude;
+                bonkEvent.speed = speedToStoreKmh;
+            }
+        } else if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
+             // Log failure reasons only if car was moving somewhat
+             if (g_previousSpeed > 5.0f) {
+                 string reason = "";
+                 // *** REMOVED preliminaryDecelOk check from reasons ***
+                 if (!sensitivityOk) reason += "Jerk (Val:" + jerkMagnitude + " <= Thresh:" + sensitivityThreshold + ") ";
+                 if (!speedOk) reason += "Speed (Prev:" + g_previousSpeed + " <= 10) ";
+                 if (!debounceOk) reason += "Debounce (Time since last: " + (currentTime - g_lastBonkTime) + "ms <= " + Setting_BonkDebounce + "ms) ";
+                 if (reason == "") reason = "Unknown Failure (Conditions: sens=" + sensitivityOk + ", speed=" + speedOk + ", debounce=" + debounceOk + ")";
+                 // Only print if there's an actual reason (i.e., one of the checks failed)
+                 if (reason != "Unknown Failure") { // Avoid logging when nothing failed but conditions weren't met (e.g. cooldown)
+                    Debug::Print("Crash", "Bonk IGNORED: " + reason);
+                 }
+            }
         }
 
         // --- Update State for Next Frame ---
-        // Store current values for the next frame's calculation
-        g_previousVel = currentVel;
-        g_previousSpeed = currentSpeed;
-        g_previousVdt = vdt_Filtered; // Store the filtered velocity change from *this* frame
+        // Update state normally if detection ran. If cooldown finished, it was already updated.
+        if (!justFinishedCooldown) {
+             g_previousVel = currentVel;
+             g_previousSpeed = currentSpeed;
+             g_previousVdt = vdt_Filtered; // Store the filtered delta-v used in THIS frame's jerk calculation
+        } else {
+             // If cooldown finished, state was updated, but store the vdt_Filtered calculated this frame
+             g_previousVdt = vdt_Filtered;
+        }
 
-        return bonkEvent; // Return the info object (or null)
+        return bonkEvent;
     }
 
 } // namespace BonkTracker
