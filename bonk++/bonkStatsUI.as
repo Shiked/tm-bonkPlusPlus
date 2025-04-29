@@ -126,6 +126,9 @@ namespace BonkStatsUI {
                     UI::TextDisabled("(No stats enabled in settings)");
                  }
             }
+
+            // Optional padding removed as auto-resize handles it better
+
         }
         UI::End(); // Must always call End() if Begin() was called
     }

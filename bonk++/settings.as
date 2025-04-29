@@ -20,7 +20,7 @@ uint Setting_BonkVolume = 69; // Nice.
 [Setting category="General" name="Time Between Bonks (ms)"
          description="Minimum time (milliseconds) before another bonk can be registered after the previous one."
          min=300 max=5000]
-uint Setting_BonkDebounce = 500; // Prevents the spamming of bonks.
+uint Setting_BonkDebounce = 400; // Prevents the spamming of bonks.
 
 // --- Detection Parameters ---
 // NOTE: Setting_BonkThreshold has been REMOVED.
@@ -29,13 +29,13 @@ uint Setting_BonkDebounce = 500; // Prevents the spamming of bonks.
 // *** Descriptions updated slightly for clarity ***
 [Setting category="General" name="Jerk Sensitivity (Grounded)"
          description="Required impact sharpness when on 4 wheels. LOWER values are MORE sensitive (detects lighter hits)."
-         min=0.1 max=100.0 beforerender="RenderDetectionHeader"] // Keep adjusted range
-float Setting_SensitivityGrounded = 4.0f;
+         min=0.1 max=50.0 beforerender="RenderDetectionHeader"] // Keep adjusted range
+float Setting_SensitivityGrounded = 8.0f;
 
 [Setting category="General" name="Jerk Sensitivity (Air/Other)"
          description="Required impact sharpness when airborne or on fewer wheels. LOWER values are MORE sensitive."
-         min=0.1 max=100.0] // Keep adjusted range
-float Setting_SensitivityAirborne = 4.0f;
+         min=0.1 max=50.0] // Keep adjusted range
+float Setting_SensitivityAirborne = 8.0f;
 
 // --- Sound Settings ---
 
@@ -82,13 +82,13 @@ uint Setting_VisualDuration = 420;
 vec3 Setting_VisualColor = vec3(1.0f, 0.0f, 0.0f); // Default: Red
 
 [Setting category="Visual" name="Max Opacity" description="Maximum opacity/intensity of the effect (0.0 to 1.0)." min=0.0 max=1.0]
-float Setting_VisualMaxOpacity = 0.696f;
+float Setting_VisualMaxOpacity = 0.750f;
 
 [Setting category="Visual" name="Feather (Width %)" description="How far the gradient spreads inwards (fraction of screen width)." min=0.0 max=1.0]
-float Setting_VisualFeather = 0.1f;
+float Setting_VisualFeather = 0.2f;
 
 [Setting category="Visual" name="Radius (Height %)" description="Rounding of the gradient shape corners (fraction of screen height)." min=0.0 max=1.0]
-float Setting_VisualRadius = 0.2f;
+float Setting_VisualRadius = 0.3f;
 
 // --- Stat Box Settings ---
 
@@ -104,8 +104,39 @@ bool Setting_EnableBonkCounterGUI = true;
 bool Setting_GUIAlwaysVisible = true;
 
 [Setting category="Stat Box" name="Lock Stat Box Window"
-         description="Prevents the Stat Box window from being resized or moved. Enables position/size settings."]
+         description="Prevents the Stat Box window from being resized or moved. Enables position/size settings."
+         afterrender="RenderResetPositionButton"] // ADDED afterrender
 bool Setting_GUILocked = false;
+// Define the new rendering function called by afterrender:
+/**
+ * @brief Renders a button to reset the Stat Box position and size to defaults.
+ * @desc Called via `afterrender` on Setting_GUILocked.
+ */
+void RenderResetPositionButton() {
+    // Add some vertical space after the lock checkbox
+    UI::Dummy(vec2(0, 5));
+    // Place the button on the same line slightly indented, or on a new line.
+    // Let's put it on a new line for clarity.
+
+    if (UI::Button("Reset Window Position & Size")) {
+        const float DEFAULT_X = 50.0f;
+        const float DEFAULT_Y = 50.0f;
+        const float DEFAULT_W = 250.0f;
+        const float DEFAULT_H = 98.0f; // Default height from settings
+
+        Setting_GUIPosX = DEFAULT_X;
+        Setting_GUIPosY = DEFAULT_Y;
+        Setting_GUIWidth = DEFAULT_W;
+        Setting_GUIHeight = DEFAULT_H; // Reset height too
+
+        UI::ShowNotification("Stat Box position/size reset!");
+        Debug::Print("Settings", "Stat Box position/size reset via button.");
+    }
+    if (UI::IsItemHovered()) {
+        UI::SetTooltip("Click to reset the Stat Box window to its default screen position and size.\nUseful if the window becomes lost off-screen.");
+    }
+    UI::Dummy(vec2(0, 10)); // Add space before the next settings group header
+}
 
 // Group 2: Box Appearance (Conditional based on Lock)
 // RenderBoxAppearanceHeader is called before this setting.
@@ -122,20 +153,19 @@ float Setting_GUIPosY = 50.0f;
 
 [Setting category="Stat Box" name="Box Width"
          description="Width of the Stat Box window (pixels)."
-         min=50 max=800 if=Setting_GUILocked]
+         min=50 max=2000 if=Setting_GUILocked]
 float Setting_GUIWidth = 250.0f;
 
 [Setting category="Stat Box" name="Box Height"
          description="Height of the Stat Box window (pixels)."
-         min=30 max=300 if=Setting_GUILocked]
+         min=30 max=1250 if=Setting_GUILocked]
 float Setting_GUIHeight = 98.0f; // Only enforced when window is locked
 
 
 // Group 3: Stat Visibility Settings
 // Renders a separator *after* this setting via afterrender.
 [Setting category="Stat Box" name="Use Compact Labels"
-         description="Display shorter labels in the Stat Box for a more compact look."
-         afterrender="RenderAppearanceSeparator"] // Separator after appearance settings
+         description="Display shorter labels in the Stat Box for a more compact look."] // Separator after appearance settings
 bool Setting_UseCompactLabels = false;
 
 // RenderStatVisibilityHeader is called before this setting.
@@ -246,7 +276,6 @@ namespace Debug {
 void RenderPlaybackHeader() {
     // No separator needed before the very first setting in the tab
     UI::SeparatorText("Playback Behavior");
-    UI::Dummy(vec2(0, 5)); // Add some vertical padding
 }
 
 /**
@@ -277,7 +306,6 @@ void RenderCustomSoundsHeader() {
 void RenderMaxRepeatsInput() {
     // Only render this input if Random mode is selected.
     if (Setting_SoundPlaybackMode == SoundMode::Random) {
-        UI::Dummy(vec2(0, 5)); // Add a little vertical space for separation
 
         // Use a temporary variable for the InputInt widget.
         int tempRepeats = int(Setting_MaxConsecutiveRepeats);
@@ -285,7 +313,7 @@ void RenderMaxRepeatsInput() {
 
         // Render the InputInt widget with step buttons (+/-).
         // The label is part of the widget itself for proper alignment.
-        tempRepeats = UI::InputInt("Max Random Repeats", tempRepeats, 1);
+        tempRepeats = UI::InputInt("Max Random Repeats Allowed", tempRepeats, 1);
 
         // Add a tooltip explaining the setting.
         if (UI::IsItemHovered()) {
@@ -311,10 +339,10 @@ void RenderMaxRepeatsInput() {
  *       Called via `afterrender` on Setting_EnableCustomSounds.
  */
 void RenderSoundCategoryFooter() {
-    UI::Dummy(vec2(0, 10)); // Add space before the separator
+    UI::Dummy(vec2(0, 5)); // Add space before the separator
     UI::Separator();
-    UI::TextWrapped("Place custom sound files (.ogg, .wav, .mp3) in the folder below.");
-
+    UI::Dummy(vec2(0, 5)); // Add space before the separator
+    UI::TextWrapped(" Place custom sound files (.ogg | .wav | .mp3) in the folder below:");
     // Display the read-only path to the custom sounds folder.
     string customPath = IO::FromStorageFolder("Sounds/");
     UI::PushItemWidth(-160); // Adjust width to leave space for buttons
@@ -331,8 +359,7 @@ void RenderSoundCategoryFooter() {
         }
     }
 
-    // Add buttons next to the path input field.
-    UI::SameLine();
+    // Add buttons after the path input field.
     if (UI::Button("Open Folder")) {
         // Ensure the folder exists before trying to open it, create if not.
         if (!IO::FolderExists(customPath)) {
@@ -344,16 +371,20 @@ void RenderSoundCategoryFooter() {
              }
          }
         // Attempt to open the folder in the system's file explorer.
-        // This might fail silently if the folder still doesn't exist or can't be accessed.
         OpenExplorerPath(customPath);
      }
-     UI::SameLine(); // Keep the next button on the same line
-     if (UI::Button("Reload Sounds")) {
-        // Trigger a reload of sound metadata from the files.
-        SoundPlayer::LoadSounds();
-        UI::ShowNotification("Sounds reloaded!");
-        Debug::Print("Settings", "Reload Sounds button clicked.");
-     }
+    UI::Dummy(vec2(0, 10)); 
+    UI::Separator();
+    UI::Dummy(vec2(0, 5)); 
+
+    if (UI::Button("Reload Sounds")) {
+    // Trigger a reload of sound metadata from the files.
+    SoundPlayer::LoadSounds(); // Calls the existing function in soundPlayer.as
+    UI::ShowNotification("Sounds reloaded!");
+    Debug::Print("Settings", "Reload Sounds button clicked.");
+    }
+    UI::SameLine(); // Keep the next button on the same line
+    UI::Text("Push this button if you add new sound file(s).");
 }
 
 /**
@@ -379,6 +410,11 @@ void RenderBoxControlsHeader() {
  *  @desc Called via `beforerender` on Setting_GUIPosX. */
 void RenderBoxAppearanceHeader() {
     // This callback is only triggered if Setting_GUILocked is true due to the `if` condition.
+
+    // Add a separator *before* the header text, as the reset button might be above it now.
+    UI::Separator();
+    UI::Dummy(vec2(0, 5));
+
     UI::Text("Box Position & Size (When Locked)");
     UI::Dummy(vec2(0, 5));
 }
