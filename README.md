@@ -1,88 +1,66 @@
 # Bonk++ for Trackmania
-**Version:** 1.0.2
+**Version:** 1.4.2
+Plays sounds and shows visuals when you crash ('bonk') your car in Trackmania. Inspired by the original ["Bonk!"](https://github.com/MisfitMaid/tm-bonk) plugin.
 
-## Description
-
-Bonk++ is an Openplanet plugin for Trackmania (2020+) that enhances gameplay by providing audible and visual feedback when your car experiences a "bonk" (significant impact or crash). 
-It uses physics analysis inspired by the original ["Bonk!" plugin](https://github.com/MisfitMaid/tm-bonk) to trigger the effects.
+---
 
 ## Features
 
-*   **Physics-Based Crash Detection:** Uses filtered jerk calculation (change in specific acceleration components) to detect significant impacts, ignoring normal braking and vertical bumps.
-*   **Sound Effects:** Plays a sound effect upon detecting a bonk.
-    *   Includes default sounds (`bonk.wav`, `oof.wav`, `vineboom.mp3`).
-    *   Supports custom user-added sounds (`.wav`, `.mp3`, `.ogg`).
-    *   Configurable playback chance, volume, playback mode (Random/Ordered), and anti-repeat for Random mode.
-    *   Individual toggles for default sounds and a master toggle for custom sounds.
-*   **Visual Feedback:** Displays a configurable screen vignette effect upon detecting a bonk.
-    *   Customize duration, color, maximum opacity, feathering, and corner radius.
-*   **Highly Configurable:** Fine-tune detection sensitivity (grounded/airborne), preliminary acceleration threshold, and debounce timing via Openplanet settings.
-*   **Debug Options:** Includes optional detailed logging for troubleshooting detection, sound loading, and playback.
+*   **Crash Detection:** Detects significant impacts using vehicle physics analysis, trying to ignore normal driving bumps and landings.
+*   **Sound Effects:** Plays sounds on bonks. Includes defaults (`bonk.wav`, `oof.wav`, `vineboom.mp3`) and supports your own custom sounds (`.wav`, `.mp3`, `.ogg`).
+*   **Visual Effects:** Shows a configurable colored vignette (screen border effect) on impact.
+*   **Stat Tracking:** An optional window displays bonk counts (current map, session, all-time) and speeds.
+*   **Configurable:** Fine-tune detection sensitivity, sound/visual options, stat display, and more via Openplanet settings.
+
+---
 
 ## Installation
 
-1.  Make sure you have [Openplanet](https://openplanet.dev/) installed for Trackmania.
-2.  Download the latest `Bonk++` version from the in-game Openplanet plugin manager, see [Openplanet's plugin installation guide](https://openplanet.dev/docs/tutorials/installing-plugins) for more information. 
+1.  Ensure you have [Openplanet](https://openplanet.dev/) installed.
+2.  Open the Openplanet overlay (`F3` in-game).
+3.  Go to the **Plugin Manager**, search for `Bonk++`, and install it.
 
-## Configuration (Openplanet Settings)
+---
 
-You can configure Bonk++ through the Openplanet overlay (press `F3`).  
-Navigate to `Openplanet` -> `Settings` -> `Audio` -> `Bonk++`.
+## Configuration
 
-### General
-*   `Enable Sound Effect`: Master toggle for playing sounds on bonks.
-*   `Enable Visual Effect`: Master toggle for showing the visual on bonks.
-*   `Bonk Chance (%)`: The probability (0-100%) that a sound will play when a bonk is detected.
-*   `Bonk Volume (%)`: Adjusts the volume of the bonk sound effects.
+Access settings via the Openplanet overlay (`F3`):
+`Openplanet` -> `Settings` -> `Audio` -> `Bonk++`
 
-### Detection
-*   `Preliminary Accel Threshold`: The initial deceleration required to *consider* an impact a potential bonk. Higher values require a harder initial hit. This works alongside the sensitivity settings.
-*   `Sensitivity (Grounded)`: The magnitude of filtered *jerk* (sharp change in side/up/down acceleration) required to confirm a bonk when all 4 wheels are on the ground. **Higher values make it *less* sensitive** (requires a sharper impact).
-*   `Sensitivity (Airborne/Less Contact)`: Jerk magnitude threshold when fewer than 4 wheels are grounded. **Higher values make it *less* sensitive**.
-*   `Bonk Debounce (ms)`: The minimum time (in milliseconds) that must pass after one bonk before another can be triggered. Prevents spamming effects during multi-stage crashes.
+You can adjust:
+*   **General:** Enable/disable sound/visuals, chance of sound playing, volume.
+*   **Detection:** How sensitive the crash detection is (overall threshold, separate ground/air sensitivity), and time between bonks.
+*   **Sound:** Playback mode (Random/Ordered), max repeats for random mode, enable/disable default sounds, enable/disable custom sounds.
+*   **Visual:** Duration, color, opacity, and shape of the visual effect.
+*   **Stat Box:** Enable/disable the stats window, lock its position/size, toggle which stats are shown (bonk counts, speeds, rate).
+*   **Reset Stats:** A dedicated tab to reset map, session, or all-time stats (with confirmation).
+*   **Misc:** Enable debug logging for troubleshooting.
 
-### Sound
-*   `Sound Playback Mode`:
-    *   `Random`: Selects a random *enabled* sound each time.
-    *   `Ordered`: Cycles through the list of *enabled* sounds sequentially.
-*   `Max Consecutive Repeats (Random)`: In `Random` mode, limits how many times the *same* sound file can be chosen consecutively. `1` means it will always try to pick a different sound if possible.
-*   `Enable Custom Sounds`: Master toggle to enable or disable loading sounds from the custom folder specified below.
-*   `Enable [Default Sound Name]`: Individual toggles for each default sound (`bonk.wav`, `oof.wav`, `vineboom.mp3`).
+*(Detailed descriptions for each setting are available as tooltips within the settings menu itself.)*
 
-*(At the bottom of the Sound category, information about the custom sound folder is displayed)*
-
-### Visual
-*   `Duration (ms)`: How long the visual vignette effect lasts on screen.
-*   `Color`: Click the color swatch to pick the color of the vignette effect.
-*   `Max Opacity`: The maximum transparency of the vignette effect (0.0 = fully transparent, 1.0 = fully opaque color). The effect fades out from this value.
-*   `Feather (Width %)`: Controls the softness of the vignette's edge (gradient size relative to screen width).
-*   `Radius (Height %)`: Controls the rounding of the vignette's corners (relative to screen height). 
-
-### Misc. (Debug)
-*   `Enable Debug Logging`: Master toggle for all debug messages.
-*   `Debug: Crash Detection`: Show detailed logs related to acceleration, jerk, and threshold checks (be warned: a lot of logging happens).
-*   `Debug: Sound Loading`: Show logs related to finding and preparing sound file metadata.
-*   `Debug: Sound Playback`: Show logs related to selecting and attempting to play sounds.
+---
 
 ## Custom Sounds
 
-1.  Ensure `Enable Custom Sounds` is checked in the settings.
-2.  Place your custom sound files (`.wav`, `.ogg`, or `.mp3` format) inside the following folder:
-    *   `Documents\Trackmania\OpenplanetNext\PluginStorage\BonkPlusPlus\Sounds\`
-3.  Use the "Reload Sounds" button in the plugin settings (under the "Sound" category) or restart the game to make the plugin recognize new files.
-4.  Currently, all found custom sounds are considered enabled if the master toggle is on; there are no individual toggles for custom sounds in the UI because it was next to impossible to figure out.
+1.  Enable `Enable Custom Sounds` in the **Sound** settings.
+2.  Place your `.wav`, `.ogg`, or `.mp3` files in:
+    `Documents\Trackmania\OpenplanetNext\PluginStorage\BonkPlusPlus\Sounds\`
+    *(The plugin will create this folder if it doesn't exist)*
+3.  Click the `Reload Sounds` button in the **Sound** settings (or restart the game).
+
+---
 
 ## Dependencies
 
-*   **Required:**
-    *   VehicleState (comes from Openplanet): Provides necessary vehicle physics information (velocity, wheel contact, etc.). Must be installed and enabled.
-*   **Optional (Recommended for best respawn detection):**
-    *   [MLHook](https://openplanet.dev/plugin/mlhook): Base plugin for ManiaLive interaction.
-    *   [MLFeedRaceData](https://openplanet.dev/plugin/mlfeedracedata): Provides detailed race state information, including precise respawn status
+*   **Required:** `VehicleState` (Included with Openplanet) - Provides core physics data.
+*   **Optional (Recommended):** `MLHook` & `MLFeedRaceData` (Install via Plugin Manager) - Needed for the most reliable detection of respawns to prevent false bonks.
+
+---
 
 ## Troubleshooting
 
-*   **No sounds play:** Check `Enable Sound Effect`, `Bonk Volume`, `Bonk Chance`. Ensure default sounds are enabled or `Enable Custom Sounds` is on and files exist in the correct folder/format. Check the Openplanet log (`Ctrl+L`) for loading errors.
-*   **Bonks trigger too often/not often enough:** Adjust `Preliminary Accel Threshold` and the `Sensitivity` settings. Lower threshold/sensitivity = more bonks. Higher threshold/sensitivity = fewer bonks. Check debug logs if enabled.
-*   **Bonks trigger on respawn:** Ensure `MLHook` and `MLFeedRaceData` are installed and enabled for the most reliable detection. If they are not available, the plugin relies on less precise methods which might occasionally trigger.
-*   **Visual effect is annoying/too strong/too weak:** Adjust `Enable Visual Effect`, `Duration`, `Color`, `Max Opacity`, `Feather`, and `Radius` settings
+*   **No Sound/Visuals?** Check the master enable toggles in **General** settings. For sound, also check **Volume**, **Bonk Chance**, and if specific/custom sounds are enabled in **Sound** settings. Check the Openplanet log (`Ctrl+L` or in overlay) for errors.
+*   **Too Many/Few Bonks?** Adjust the **Detection** sensitivity settings. Lower values = more sensitive.
+*   **Bonk on Respawn?** Install and enable the optional `MLHook` and `MLFeedRaceData` plugins.
+*   **Visual Effect Issues?** Adjust settings in the **Visual** category.
+*   **Stat Box Annoying?** Disable it in **Stat Box** settings or unlock it (`Lock Stat Box Window`) to move/resize.
