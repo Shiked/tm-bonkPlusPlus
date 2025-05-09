@@ -12,6 +12,8 @@ bool g_wasInActivePlayStateLastFrame = false;
 uint64 g_totalAllTimeBonks = 0;         // Loaded/Saved via file
 float g_lastBonkSpeedKmh = 0.0f;
 float g_highestAllTimeBonkSpeedKmh = 0.0f; // All-time highest speed
+uint g_initializationFrames = 0;
+const uint INITIALIZATION_GRACE_FRAMES = 3; // Skip checks for 3 frames
 
 // --- Define the persistence file name ---
 const string ALL_TIME_STATS_FILENAME = "bonk_stats.txt"; // Changed filename as requested
@@ -151,6 +153,7 @@ void Main() {
     g_currentMapUid = "";
     ResetMapStats();
     LoadAllTimeStatsFromFile(); // Load persistent counter & speed from file
+    g_initializationFrames = INITIALIZATION_GRACE_FRAMES;
     SoundPlayer::Initialize();
     BonkTracker::Initialize();
     BonkUI::Initialize();
@@ -168,6 +171,9 @@ void OnEnable() {
     ResetMapStats();
     ResetSessionStats();
     // No need to reload all-time stats here
+    g_initializationFrames = INITIALIZATION_GRACE_FRAMES; // Reset on map change too
+    BonkTracker::Initialize(); // Ensure tracker state is also reset
+    Debug::Print("Main", "Resetting Map Stats & Init Grace Period (" + INITIALIZATION_GRACE_FRAMES + " frames)");
 }
 
 /**
