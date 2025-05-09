@@ -101,17 +101,17 @@ namespace BonkStatsUI {
                     if (Setting_ShowHighestAllTimeBonk) {
                          UI::TableNextRow(); UI::TableNextColumn();
                          if (Setting_UseCompactLabels) { UI::Text("Fastest Bonk:"); UI::TableNextColumn(); string s = (g_highestAllTimeBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_highestAllTimeBonkSpeedKmh) : "N/A"; UI::Text(s); }
-                         else { UI::Text(Icons::Star + " Fastest Bonk Ever:"); UI::TableNextColumn(); string s = (g_highestAllTimeBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_highestAllTimeBonkSpeedKmh) : "N/A"; UI::Text(s + " Units"); }
+                         else { UI::Text(Icons::Star + " Fastest Bonk Ever:"); UI::TableNextColumn(); string s = (g_highestAllTimeBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_highestAllTimeBonkSpeedKmh) : "N/A"; UI::Text(s + " Km/h"); }
                     }
                     if (Setting_ShowMapMaxSpeed) {
                         UI::TableNextRow(); UI::TableNextColumn();
                         if (Setting_UseCompactLabels) { UI::Text("Map Fastest:"); UI::TableNextColumn(); string s = (g_mapHighestBonkSpeed > 0.1f) ? Text::Format("%.2f", g_mapHighestBonkSpeed) : "N/A"; UI::Text(s); }
-                        else { UI::Text(Icons::Tachometer + " Fastest Bonk (map):"); UI::TableNextColumn(); string s = (g_mapHighestBonkSpeed > 0.1f) ? Text::Format("%.2f", g_mapHighestBonkSpeed) : "N/A"; UI::Text(s + " Units"); }
+                        else { UI::Text(Icons::Tachometer + " Fastest Bonk (map):"); UI::TableNextColumn(); string s = (g_mapHighestBonkSpeed > 0.1f) ? Text::Format("%.2f", g_mapHighestBonkSpeed) : "N/A"; UI::Text(s + " Km/h"); }
                     }
                     if (Setting_ShowLastBonkSpeed) {
                         UI::TableNextRow(); UI::TableNextColumn();
                         if (Setting_UseCompactLabels) { UI::Text("Last Speed:"); UI::TableNextColumn(); string s = (g_lastBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_lastBonkSpeedKmh) : "N/A"; UI::Text(s); }
-                        else { UI::Text(Icons::History + " Last Speed:"); UI::TableNextColumn(); string s = (g_lastBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_lastBonkSpeedKmh) : "N/A"; UI::Text(s + " Units"); }
+                        else { UI::Text(Icons::History + " Last Speed:"); UI::TableNextColumn(); string s = (g_lastBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_lastBonkSpeedKmh) : "N/A"; UI::Text(s + " Km/h"); }
                     }
                     if (Setting_ShowBonkRate) {
                          UI::TableNextRow(); UI::TableNextColumn();
