@@ -4,13 +4,13 @@
 namespace BonkUI {
 
     // --- State Variables ---
-    bool g_visualActive = false;        // Is the effect currently being displayed?
-    uint64 g_visualStartTime = 0;       // Timestamp when the current effect started
-    bool g_isInitialized = false;       // Flag to ensure state is reset on first run/enable
+    bool g_visualActive = false; // Is the effect currently being displayed?
+    uint64 g_visualStartTime = 0; // Timestamp when the current effect started
+    bool g_isInitialized = false; // Flag to ensure state is reset on first run/enable
 
     // --- Initialization ---
     /**
-     * @desc Resets the visual effect state. Called on plugin load/enable.
+     * Resets the visual effect state. Called on plugin load/enable.
      */
     void Initialize() {
         g_visualActive = false;
@@ -21,7 +21,7 @@ namespace BonkUI {
 
      // --- Public Control Functions ---
      /**
-      * @desc Starts the visual effect if it's enabled in settings.
+      * Starts the visual effect if it's enabled in settings.
       *       Called by main.as when a bonk is confirmed and sound chance passes.
       */
     void TriggerVisualEffect() {
@@ -32,7 +32,7 @@ namespace BonkUI {
     }
 
     /**
-     * @desc Immediately stops the visual effect. Called when the plugin is disabled.
+     * Immediately stops the visual effect. Called when the plugin is disabled.
      */
     void DeactivateVisualEffect() {
         if (g_visualActive) {
@@ -44,7 +44,7 @@ namespace BonkUI {
 
     // --- Rendering Logic ---
     /**
-     * @desc Draws the vignette effect if active. Called every frame by main.as -> Render().
+     * Draws the vignette effect if active. Called every frame by main.as -> Render().
      */
     void RenderEffect() {
         // Exit early if the effect isn't enabled or isn't currently active

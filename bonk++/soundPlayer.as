@@ -5,17 +5,16 @@
 namespace SoundPlayer {
 
     /**
-     * @desc Holds metadata for a single sound effect, including its path,
-     *       loaded sample handle, enabled status, and loading state.
+     * Holds metadata for a single sound effect, including its path, loaded sample handle, enabled status, and loading state.
      */
     class SoundInfo {
-        string path;                // Full path (absolute for custom, relative like "Sounds/bonk.wav" for default).
+        string path;                  // Full path (absolute for custom, relative like "Sounds/bonk.wav" for default).
         Audio::Sample@ sample = null; // Handle to the loaded audio data (null if not loaded).
-        bool enabled = true;         // Whether this sound is currently considered active based on settings.
+        bool enabled = true;          // Whether this sound is currently considered active based on settings.
         bool isCustom = false;        // True if loaded from PluginStorage, false if default plugin resource.
-        string displayName;         // User-friendly name, typically the filename.
+        string displayName;           // User-friendly name, typically the filename.
         bool loadAttempted = false;   // Flag: true if a load attempt was made (prevents repeated attempts on failure).
-        bool loadFailed = false;       // Flag: true if the last load attempt failed (skips playback attempts).
+        bool loadFailed = false;      // Flag: true if the last load attempt failed (skips playback attempts).
     }
 
     // --- Module State ---
@@ -26,7 +25,7 @@ namespace SoundPlayer {
     bool g_isInitialized = false;        // Tracks if Initialize() has run.
 
     /**
-     * @desc Initializes the sound player module by performing an initial scan for sounds.
+     * Initializes the sound player module by performing an initial scan for sounds.
      *       Called on plugin load via main.as -> Main().
      */
     void Initialize() {
@@ -36,7 +35,7 @@ namespace SoundPlayer {
     }
 
     /**
-     * @desc Scans for default sounds (packaged with the plugin) and custom sounds
+     * Scans for default sounds (packaged with the plugin) and custom sounds
      *       (in PluginStorage/Bonk++/Sounds/), updates the internal list `g_allSounds`,
      *       and applies enabled/disabled status based on settings.
      *       Crucially, this *only loads metadata*, not the actual audio samples.
@@ -169,7 +168,7 @@ namespace SoundPlayer {
     }
 
     /**
-     * @desc Selects a sound based on current settings (mode, enabled status),
+     * Selects a sound based on current settings (mode, enabled status),
      *       loads its audio sample if not already loaded, and plays it.
      *       Called by main.as when a bonk occurs and the chance check passes.
      */

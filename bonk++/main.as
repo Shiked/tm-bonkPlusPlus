@@ -9,18 +9,17 @@ uint g_mapTotalBonks = 0;
 float g_mapHighestBonkSpeed = 0.0f;
 float g_mapActiveTimeSeconds = 0.0f;
 bool g_wasInActivePlayStateLastFrame = false;
-uint64 g_totalAllTimeBonks = 0;         // Loaded/Saved via file
+uint64 g_totalAllTimeBonks = 0; // Loaded/Saved via file
 float g_lastBonkSpeedKmh = 0.0f;
 float g_highestAllTimeBonkSpeedKmh = 0.0f; // All-time highest speed
 uint g_initializationFrames = 0;
 const uint INITIALIZATION_GRACE_FRAMES = 3; // Skip checks for 3 frames
 
 // --- Define the persistence file name ---
-const string ALL_TIME_STATS_FILENAME = "bonk_stats.txt"; // Changed filename as requested
-// ---
+const string ALL_TIME_STATS_FILENAME = "bonk_stats.txt";
 
 /**
- * @desc Resets statistics specific to the current map.
+ * Resets statistics specific to the current map.
  */
 void ResetMapStats() {
     Debug::Print("Main", "Resetting Map Stats (Bonks, Speed, Time)");
@@ -31,7 +30,7 @@ void ResetMapStats() {
 }
 
 /**
- * @desc Resets session-specific statistics.
+ * Resets session-specific statistics.
  */
 void ResetSessionStats() {
     Debug::Print("Main", "Resetting Session Stats (Bonks, Last Speed)");
@@ -40,14 +39,12 @@ void ResetSessionStats() {
 }
 
 /**
- * @desc Loads the all-time bonk counter AND highest speed from its dedicated file.
+ * Loads the all-time bonk counter AND highest speed from its dedicated file.
  */
 void LoadAllTimeStatsFromFile() {
     // Get the FULL path within the plugin's dedicated storage folder
     string filePath = IO::FromStorageFolder(ALL_TIME_STATS_FILENAME);
-    // --- CLARIFIED LOG ---
     print("[Bonk++] Attempting to load All-Time Stats from: " + filePath); // Use print for higher visibility
-    // --- END CLARIFIED LOG ---
     g_totalAllTimeBonks = 0; // Default values
     g_highestAllTimeBonkSpeedKmh = 0.0f;
 
@@ -92,16 +89,14 @@ void LoadAllTimeStatsFromFile() {
             g_highestAllTimeBonkSpeedKmh = 0.0f;
         }
     } else {
-        // --- CLARIFIED LOG ---
         print("[Bonk++] All-Time Stats file NOT FOUND at: " + filePath + ". Initializing counters to 0."); // Use print for higher visibility
-        // --- END CLARIFIED LOG ---
         g_totalAllTimeBonks = 0;
         g_highestAllTimeBonkSpeedKmh = 0.0f;
     }
 }
 
 /**
- * @desc Saves the all-time bonk counter AND highest speed to its dedicated file.
+ * Saves the all-time bonk counter AND highest speed to its dedicated file.
  */
 void SaveAllTimeStatsToFile() {
     // Get the FULL path within the plugin's dedicated storage folder
@@ -135,7 +130,7 @@ void SaveAllTimeStatsToFile() {
 
 // --- Reset All-Time Stats ---
 /**
- * @desc Resets the all-time bonk counter and highest speed, then saves the changes immediately.
+ * Resets the all-time bonk counter and highest speed, then saves the changes immediately.
  */
 void ResetAllTimeStats() {
     Debug::Print("Main", "Resetting All-Time Stats (Bonks, Speed) to 0.");
@@ -146,7 +141,7 @@ void ResetAllTimeStats() {
 
 
 /**
- * @desc Plugin entry point, called once when the plugin is loaded or reloaded.
+ * Plugin entry point, called once when the plugin is loaded or reloaded.
  */
 void Main() {
     ResetSessionStats();
@@ -161,7 +156,7 @@ void Main() {
 }
 
 /**
- * @desc Called when the plugin is enabled via UI or programmatically.
+ * Called when the plugin is enabled via UI or programmatically.
  */
 void OnEnable() {
     print("[Bonk++] Enabled");
@@ -177,7 +172,7 @@ void OnEnable() {
 }
 
 /**
- * @desc Called when the plugin is disabled via UI or programmatically.
+ * Called when the plugin is disabled via UI or programmatically.
  */
 void OnDisable() {
     print("[Bonk++] Disabled");
@@ -186,7 +181,7 @@ void OnDisable() {
 }
 
 /**
- * @desc Called when the plugin is unloaded/removed from memory.
+ * Called when the plugin is unloaded/removed from memory.
  */
 void OnDestroyed() {
     print("[Bonk++] Unloading. Saving All-Time Stats...");
@@ -195,7 +190,7 @@ void OnDestroyed() {
 
 
 /**
- * @desc Gets the local player's handle using the GameTerminals pattern.
+ * Gets the local player's handle using the GameTerminals pattern.
  */
 CSmPlayer@ GetLocalPlayerHandle(CGameCtnApp@ app, CGameCtnPlayground@ playground) {
     if (app is null || playground is null) {
@@ -222,7 +217,7 @@ CSmPlayer@ GetLocalPlayerHandle(CGameCtnApp@ app, CGameCtnPlayground@ playground
 }
 
 /**
- * @desc Checks if the player is currently in an active gameplay state.
+ * Checks if the player is currently in an active gameplay state.
  */
 bool IsPlayerActivelyPlaying() {
     CGameCtnApp@ app = GetApp();
@@ -239,7 +234,7 @@ bool IsPlayerActivelyPlaying() {
 
 
 /**
- * @desc Called every frame for game logic updates.
+ * Called every frame for game logic updates.
  */
 void Update(float dt) {
     CGameCtnApp@ app = GetApp();
@@ -345,7 +340,7 @@ void Update(float dt) {
 }
 
 /**
- * @desc Called every frame for rendering game overlays.
+ * Called every frame for rendering game overlays.
  */
 void Render() {
     BonkUI::RenderEffect();
@@ -353,7 +348,7 @@ void Render() {
 }
 
 /**
- * @desc Called every frame for rendering interface elements.
+ * Called every frame for rendering interface elements.
  */
 void RenderInterface() {
     // GUI rendering moved to Render()

@@ -5,10 +5,10 @@
 namespace BonkStatsUI {
 
     /**
-     * @desc Renders the Bonk Counter GUI window if enabled in settings
-     *       AND if the player is currently in an active gameplay state.
-     *       Accesses global settings (Setting_*) and stats (g_*) from main/settings.
-     *       Uses tables for aligned stat display.
+     * Renders the Bonk Counter GUI window if enabled in settings
+     * AND if the player is currently in an active gameplay state.
+     * Accesses global settings (Setting_*) and stats (g_*) from main/settings.
+     * Uses tables for aligned stat display.
      */
     void RenderGUIWindow() {
         // --- Early Exit Checks ---
@@ -18,7 +18,7 @@ namespace BonkStatsUI {
             return;
         }
 
-        // 2. *** NEW CHECK: Check if the player is actively playing ***
+        // 2. Check if the player is actively playing
         //    Uses the function defined in main.as
         if (!IsPlayerActivelyPlaying()) {
             // If debugging GUI, log why we're skipping
@@ -90,7 +90,7 @@ namespace BonkStatsUI {
                     if (Setting_ShowMapBonks) {
                         UI::TableNextRow(); UI::TableNextColumn();
                         if (Setting_UseCompactLabels) { UI::Text("Map Bonks:"); }
-                        else { UI::Text(Icons::Map + " Total Map Bonks:"); }
+                        else { UI::Text(Icons::Map + " Current Map Bonks:"); }
                         UI::TableNextColumn(); UI::Text("" + g_mapTotalBonks);
                     }
                     if (Setting_ShowAllTimeBonks) {
@@ -111,7 +111,7 @@ namespace BonkStatsUI {
                     if (Setting_ShowLastBonkSpeed) {
                         UI::TableNextRow(); UI::TableNextColumn();
                         if (Setting_UseCompactLabels) { UI::Text("Last Speed:"); UI::TableNextColumn(); string s = (g_lastBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_lastBonkSpeedKmh) : "N/A"; UI::Text(s); }
-                        else { UI::Text(Icons::History + " Last Speed:"); UI::TableNextColumn(); string s = (g_lastBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_lastBonkSpeedKmh) : "N/A"; UI::Text(s + " Km/h"); }
+                        else { UI::Text(Icons::History + " Last Bonk Speed:"); UI::TableNextColumn(); string s = (g_lastBonkSpeedKmh > 0.1f) ? Text::Format("%.2f", g_lastBonkSpeedKmh) : "N/A"; UI::Text(s + " Km/h"); }
                     }
                     if (Setting_ShowBonkRate) {
                          UI::TableNextRow(); UI::TableNextColumn();
@@ -126,8 +126,6 @@ namespace BonkStatsUI {
                     UI::TextDisabled("(No stats enabled in settings)");
                  }
             }
-
-            // Optional padding removed as auto-resize handles it better
 
         }
         UI::End(); // Must always call End() if Begin() was called

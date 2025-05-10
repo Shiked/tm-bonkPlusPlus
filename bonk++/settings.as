@@ -1,8 +1,6 @@
 // --- settings.as ---
 // Handles Bonk++ plugin settings definitions, debug logging, and custom UI elements within the Openplanet settings window.
 
-// --- Settings Definitions ---
-
 // --- General Settings ---
 [Setting category="General" name="Enable Sound Effect" description="Play a sound when you bonk."]
 bool Setting_EnableSound = true;
@@ -23,20 +21,20 @@ uint Setting_BonkDebounce = 400; // Prevents the spamming of bonks.
 
 // RenderDetectionHeader is called before this setting to draw a subgroup header
 [Setting category="General" name="Jerk Sensitivity (Grounded)" description="Required impact sharpness when on 4 wheels.
-**LOWER values are MORE sensitive (detects lighter hits)**" min=0.1 max=50.0 
-* beforerender="RenderDetectionHeader"] 
+**LOWER values are MORE sensitive (detects lighter hits)**" min=0.1 max=50.0 beforerender="RenderDetectionHeader"] 
 float Setting_SensitivityGrounded = 4.0f;
 
 [Setting category="General" name="Jerk Sensitivity (Air/Other)" description="Required impact sharpness when airborne or on fewer wheels.
 **LOWER values are MORE sensitive (detects lighter hits)**" min=0.1 max=50.0]
 float Setting_SensitivityAirborne = 4.0f;
 
-// Changing this doesn't really do anything, hiding it for now
+// Changing this doesn't seem to actually do much, hiding it for now
 // New setting, similar to original bonkThresh
-[Setting category="General" name="Deceleration Threshold (Base)"
-         description="Base value for detecting a significant slowdown. Higher values require a harder stop. This works in conjunction with Jerk Sensitivity."
-         min=1.0 max=50.0 hidden]
+[Setting category="General" name="Deceleration Threshold (Base)" description="Base value for detecting a significant slowdown. Higher values require a harder stop. This works in conjunction with Jerk Sensitivity."
+min=1.0 max=50.0 hidden]
 float Setting_DecelerationThreshold = 16.0f;
+
+// --- End General Settings ---
 
 // --- Sound Settings ---
 
@@ -75,6 +73,8 @@ bool Setting_Enable_vineboommp3 = true;
     afterrender="RenderSoundCategoryFooter"]
 bool Setting_EnableCustomSounds = true;
 
+// --- End Sound Settings ---
+
 // --- Visual Settings ---
 [Setting category="Visual" name="Duration (ms)" description="How long the visual effect lasts." min=50 max=2000]
 uint Setting_VisualDuration = 420;
@@ -91,19 +91,21 @@ float Setting_VisualFeather = 0.2f;
 [Setting category="Visual" name="Radius (Height %)" description="Rounding of the gradient shape corners (fraction of screen height)." min=0.0 max=1.0]
 float Setting_VisualRadius = 0.3f;
 
+// --- End Visual Settings ---
+
 // --- Stat Box Settings ---
 
 // Group 1: General Box Controls
 // RenderBoxControlsHeader is called before this setting.
-[Setting category="Stat Box" name="Enable Stat Box" description="Show a small window tracking bonk statistics." 
+[Setting category="Stat Box" name="Enable Stat Box" description="Show a small window tracking bonk statistics.
+Stats will still be tracked if disabled." 
     beforerender="RenderBoxControlsHeader"]
 bool Setting_EnableBonkCounterGUI = true;
 
 [Setting category="Stat Box" name="Always Show Box" description="Keep the Stat Box visible even when the Openplanet overlay (F3) is hidden."]
 bool Setting_GUIAlwaysVisible = true;
 
-[Setting category="Stat Box" name="Lock Stat Box Window"
-    description="Prevents the Stat Box window from being resized or moved. Enables position/size settings."
+[Setting category="Stat Box" name="Lock Stat Box Window" description="Prevents the Stat Box window from being resized or moved. Enables position/size settings."
     afterrender="RenderResetPositionButton"]
 bool Setting_GUILocked = false;
 
@@ -179,10 +181,9 @@ bool Setting_Debug_GUI = false;
 // Defined *after* settings variables so it can access them.
 namespace Debug {
     /**
-     * Prints a message to the Openplanet log if the master debug setting
-     *       and the specific category debug setting are both enabled.
-     * @param category The log category (e.g., "Crash", "Playback"). Should match a Setting_Debug_... variable name suffix.
-     * @param message The message to print.
+     * Prints a message to the Openplanet log if the master debug setting and the specific category debug setting are both enabled.
+     * category - The log category (e.g., "Crash", "Playback"). Should match a Setting_Debug_... variable name suffix.
+     * message - The message to print.
      */
     void Print(const string &in category, const string &in message) {
         // Exit immediately if the master debug toggle is off.
@@ -210,43 +211,28 @@ namespace Debug {
 
         // Print the message only if both master and category toggles are enabled.
         if (categoryEnabled) {
-            // Using print for general debug logs as requested elsewhere for visibility.
             print("[Bonk++ DBG:" + category + "] " + message);
         }
     }
 }
- // namespace Debug
+// namespace Debug
 
 // --- Settings UI Rendering Callbacks ---
-// These functions are called by Openplanet via `beforerender` or `afterrender`
-// metadata attributes on specific settings to inject custom UI elements.
+// These functions are called by Openplanet via `beforerender` or `afterrender` metadata attributes on specific settings to inject custom UI elements.
 
+// --- General Settings Rendering ---
 /**
- * Renders a button to reset the Stat Box position and size to defaults.
- * Called via `afterrender` on Setting_GUILocked.
+ * Renders a header for the "Detection Parameters" subgroup in General settings.
+ * Called via `beforerender` on Setting_SensitivityGrounded.
  */
-void RenderResetPositionButton() {
-    UI::Dummy(vec2(0, 5)); // Add some vertical space after the lock checkbox
-    if (UI::Button("Reset Window Position & Size")) {
-        const float DEFAULT_X = 50.0f;
-        const float DEFAULT_Y = 50.0f;
-        const float DEFAULT_W = 250.0f;
-        const float DEFAULT_H = 98.0f; // Default height from settings
-
-        Setting_GUIPosX = DEFAULT_X;
-        Setting_GUIPosY = DEFAULT_Y;
-        Setting_GUIWidth = DEFAULT_W;
-        Setting_GUIHeight = DEFAULT_H;
-
-        UI::ShowNotification("Stat Box position/size reset!");
-        Debug::Print("Settings", "Stat Box position/size reset via button.");
-    }
-    if (UI::IsItemHovered()) {
-        UI::SetTooltip("**Only works when \"Lock Stat Box Window\" is enabled.**\nClick to reset the Stat Box window to its default screen position and size.\nUseful if the window becomes lost off-screen.");
-    }
-    UI::Dummy(vec2(0, 10)); // Add space before the next settings group header
+void RenderDetectionHeader() {
+    UI::Dummy(vec2(0, 10)); // Add space before the separator
+    UI::SeparatorText("Detection Parameters");
+    UI::Dummy(vec2(0, 5)); // Add space after the separator text
 }
+// --- End General Settings Rendering ---
 
+// --- Sound Settings Rendering ---
 /**
  * Renders a header for the "Playback Behavior" subgroup in Sound settings.
  * Called via `beforerender` on Setting_SoundPlaybackMode.
@@ -277,9 +263,8 @@ void RenderCustomSoundsHeader() {
 
 /**
  * Renders the input control for Max Consecutive Repeats manually.
- * This is necessary because the setting should only be visible when
- *       `Setting_SoundPlaybackMode` is set to `Random`.
- *       Called via `afterrender` on Setting_SoundPlaybackMode.
+ * This is necessary because the setting should only be visible when `Setting_SoundPlaybackMode` is set to `Random`.
+ * Called via `afterrender` on Setting_SoundPlaybackMode.
  */
 void RenderMaxRepeatsInput() {
     // Only render this input if Random mode is selected.
@@ -312,9 +297,8 @@ void RenderMaxRepeatsInput() {
 
 /**
  * Renders custom UI elements at the bottom of the "Sound" settings category.
- * Displays the path to the custom sound folder and provides buttons
- *       to open the folder and reload sounds.
- *       Called via `afterrender` on Setting_EnableCustomSounds.
+ * Displays the path to the custom sound folder and provides buttons to open the folder and reload sounds.
+ * Called via `afterrender` on Setting_EnableCustomSounds.
  */
 void RenderSoundCategoryFooter() {
     UI::Dummy(vec2(0, 5)); // Add space before the separator
@@ -365,15 +349,15 @@ void RenderSoundCategoryFooter() {
     UI::Text("Push this button if you add new sound file(s).");
 }
 
-/**
- * Renders a header for the "Detection Parameters" subgroup in General settings.
- * Called via `beforerender` on Setting_BonkThreshold.
- */
-void RenderDetectionHeader() {
-    UI::Dummy(vec2(0, 10)); // Add space before the separator
-    UI::SeparatorText("Detection Parameters");
-    UI::Dummy(vec2(0, 5)); // Add space after the separator text
-}
+// --- End Sound Settings Rendering ---
+
+
+// --- Visual Settings Rendering ---
+// Placeholder
+// --- End Visual Settings Rendering ---
+
+
+// --- Stat Box Settings Rendering ---
 
 // --- Settings UI Callbacks for Stat Box Tab ---
 
@@ -390,7 +374,6 @@ void RenderBoxAppearanceHeader() {
     // This callback is only triggered if Setting_GUILocked is true due to the `if` condition.
     UI::Separator();
     UI::Dummy(vec2(0, 5));
-
     UI::Text("Box Position & Size (When Locked)");
     UI::Dummy(vec2(0, 5));
 }
@@ -406,8 +389,35 @@ void RenderAppearanceSeparator() {
 /** Renders header for the statistic visibility toggles.
  *  Called via `beforerender` on Setting_ShowSessionBonks. */
 void RenderStatVisibilityHeader() {
+    UI::Dummy(vec2(0, 5));
     UI::SeparatorText("Stats to Display");
     UI::Dummy(vec2(0, 5));
+}
+
+/**
+ * Renders a button to reset the Stat Box position and size to defaults.
+ * Called via `afterrender` on Setting_GUILocked.
+ */
+void RenderResetPositionButton() {
+    UI::Dummy(vec2(0, 5));
+    if (UI::Button("Reset Window Position & Size")) {
+        const float DEFAULT_X = 50.0f;
+        const float DEFAULT_Y = 50.0f;
+        const float DEFAULT_W = 250.0f;
+        const float DEFAULT_H = 98.0f; // Default height from settings
+
+        Setting_GUIPosX = DEFAULT_X;
+        Setting_GUIPosY = DEFAULT_Y;
+        Setting_GUIWidth = DEFAULT_W;
+        Setting_GUIHeight = DEFAULT_H;
+
+        UI::ShowNotification("Stat Box position/size reset!");
+        Debug::Print("Settings", "Stat Box position/size reset via button.");
+    }
+    if (UI::IsItemHovered()) {
+        UI::SetTooltip("**Only works when \"Lock Stat Box Window\" is enabled.**\nClick to reset the Stat Box window to its default screen position and size.\nUseful if the window becomes lost off-screen.");
+    }
+    UI::Dummy(vec2(0, 10));
 }
 
 // --- Reset Stats Tab Rendering ---
@@ -419,9 +429,9 @@ void RenderStatVisibilityHeader() {
  */
 [SettingsTab name="Reset Stats"]
 void RenderResetStatsTab() {
-    UI::TextWrapped("Use these buttons to reset tracked bonk statistics.");
+    UI::TextWrapped("Use these buttons to reset tracked bonk statistics.\n**Current stats will reset instantly - \"All-Time\" requires confirmation**");
     UI::Separator();
-    UI::Dummy(vec2(0, 5)); // Add vertical space
+    UI::Dummy(vec2(0, 5));
 
     // --- Map Stats Reset ---
     UI::Text("Current Map Stats:");
@@ -435,9 +445,9 @@ void RenderResetStatsTab() {
     if (UI::IsItemHovered()) {
         UI::SetTooltip("Resets Bonks, Highest Speed, and Active Time for the current map only.");
     }
-    UI::Dummy(vec2(0, 5)); // Add vertical space
+    UI::Dummy(vec2(0, 5));
     UI::Separator();
-    UI::Dummy(vec2(0, 5)); // Add vertical space
+    UI::Dummy(vec2(0, 5));
 
     // --- Session Stats Reset ---
     UI::Text("Current Session Stats:");
@@ -451,9 +461,9 @@ void RenderResetStatsTab() {
     if (UI::IsItemHovered()) {
         UI::SetTooltip("Resets Session Bonks and Last Bonk Speed since the plugin was last loaded/enabled.");
     }
-    UI::Dummy(vec2(0, 5)); // Add vertical space
+    UI::Dummy(vec2(0, 5));
     UI::Separator();
-    UI::Dummy(vec2(0, 5)); // Add vertical space
+    UI::Dummy(vec2(0, 5));
 
     // --- All-Time Stats Reset ---
     UI::Text("All-Time Stats:");
