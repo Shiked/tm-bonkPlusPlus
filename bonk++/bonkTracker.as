@@ -1,7 +1,6 @@
 // --- bonkTracker.as ---
-// Core logic for detecting bonks based on physics changes (jerk and deceleration)
-// and managing related state like debounce timers.
-// V4.0 - Re-incorporated deceleration check from original Bonk.
+// Core logic for detecting bonks based on physics changes (jerk and deceleration) and managing related state like debounce timers.
+// V4.0 - Re-incorporated deceleration check from original to fix respawn bonk issue.
 
 namespace BonkTracker {
 
@@ -67,7 +66,7 @@ namespace BonkTracker {
         bool skipDetectionThisFrame = false;
         bool justFinishedCooldown = false;
 
-        // --- Respawn State Check & Cooldown Management (Same as before) ---
+        // --- Respawn State Check & Cooldown Management ---
         bool mlFeedSpawned = true;
         #if DEPENDENCY_MLFEEDRACEDATA && DEPENDENCY_MLHOOK
             auto mlf = MLFeed::GetRaceData_V3();
@@ -129,10 +128,10 @@ namespace BonkTracker {
 
         // Log Deceleration check always if debugging crash detection
         if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
-            Debug::Print("Crash", "[Decel Check] Decel: " + currentDecel + " > TargetThresh: " + targetDecelThreshold + " (Base:" + Setting_DecelerationThreshold + ", PrevSpeedBonus:" + (g_previousSpeed * 1.5f) + ") ? -> " + decelOk);
+            Debug::Print("Crash", "[Decel Check] Decel: " + currentDecel + " > TargetThresh: " + targetDecelThreshold + " (Base:" + Setting_DecelerationThreshold + ", PrevSpeedBonus:" + (g_previousSpeed * 1.5f) + ") ? -> " + decelOk); // Spammy
         }
 
-        // Step 2: Calculate Filtered Jerk Magnitude (Same as before)
+        // Step 2: Calculate Filtered Jerk Magnitude
         vec3 vdt = currentVel - g_previousVel;
         float vdtUpComponent = Math::Dot(vdt, visState.Up);
         vec3 vdt_NoVertical = vdt - visState.Up * vdtUpComponent;
@@ -142,17 +141,17 @@ namespace BonkTracker {
         vec3 vdtdt = vdt_Filtered - g_previousVdt;
         float jerkMagnitude = vdtdt.Length();
 
-        // Step 3: Perform Jerk Sensitivity Check (Same as before)
+        // Step 3: Perform Jerk Sensitivity Check
         int wheelContactCount = GetWheelContactCount(visState);
         float sensitivityThreshold = (wheelContactCount == 4) ? Setting_SensitivityGrounded : Setting_SensitivityAirborne;
         bool sensitivityOk = jerkMagnitude > sensitivityThreshold;
 
         // Log Jerk check always if debugging crash detection
          if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
-            Debug::Print("Crash", "[Jerk Sensitivity Check] Jerk: " + jerkMagnitude + " > Threshold (" + (wheelContactCount == 4 ? "Ground" : "Air") + "): " + sensitivityThreshold + " ? -> " + sensitivityOk);
+            Debug::Print("Crash", "[Jerk Sensitivity Check] Jerk: " + jerkMagnitude + " > Threshold (" + (wheelContactCount == 4 ? "Ground" : "Air") + "): " + sensitivityThreshold + " ? -> " + sensitivityOk);  // Spammy
          }
 
-        // Step 4: Debounce and Minimum Speed Check (Same as before)
+        // Step 4: Debounce and Minimum Speed Check
         bool debounceOk = (currentTime - g_lastBonkTime) > Setting_BonkDebounce;
         bool speedOk = g_previousSpeed > 10.0f; // Check previous speed was significant
 
@@ -161,7 +160,7 @@ namespace BonkTracker {
         bool allConditionsMet = decelOk && sensitivityOk && speedOk && debounceOk; // ADDED decelOk
 
         if (allConditionsMet) {
-            // Check for zero speed override (respawn) (Same as before)
+            // Check for zero speed override (respawn)
             if (currentSpeed < ZERO_SPEED_THRESHOLD) {
                  if (Setting_Debug_EnableMaster && Setting_Debug_Crash) {
                     Debug::Print("Crash", "Bonk OVERRIDDEN: Conditions met, but CurrentSpeed (" + currentSpeed + ") is near zero. Likely respawn.");
