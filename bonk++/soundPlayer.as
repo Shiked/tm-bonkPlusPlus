@@ -1,332 +1,560 @@
 // --- soundPlayer.as ---
 // Manages loading sound metadata, selecting sounds based on settings,
-// loading audio samples on demand, and playing them using the Audio namespace.
+// downloading remote sounds, loading audio samples, and playing them.
 
 namespace SoundPlayer {
 
-    /**
-     * Holds metadata for a single sound effect, including its path, loaded sample handle, enabled status, and loading state.
-     */
+    // --- Enums ---
+    enum SoundSourceType { Default, LocalCustom, Remote }
+    enum SoundLoadState { Idle, Downloading, Downloaded, LoadFailed_Download, LoadFailed_Sample }
+
+    // --- Sound Metadata Class ---
     class SoundInfo {
-        string path;                  // Full path (absolute for custom, relative like "Sounds/bonk.wav" for default).
-        Audio::Sample@ sample = null; // Handle to the loaded audio data (null if not loaded).
-        bool enabled = true;          // Whether this sound is currently considered active based on settings.
-        bool isCustom = false;        // True if loaded from PluginStorage, false if default plugin resource.
-        string displayName;           // User-friendly name, typically the filename.
-        bool loadAttempted = false;   // Flag: true if a load attempt was made (prevents repeated attempts on failure).
-        bool loadFailed = false;      // Flag: true if the last load attempt failed (skips playback attempts).
+        string displayName;         // User-friendly name
+        string path;                // Relative for default, Absolute for local custom & downloaded remote
+        SoundSourceType sourceType;
+        Audio::Sample@ sample = null;
+        bool isEnabledByUser = true; // User toggle from settings UI (persisted for remote/default)
+        SoundLoadState loadState = SoundLoadState::Idle;
+        bool isDownloaded = false; 
+        
+        // Remote-specific
+        string remoteUrl = "";
+        string remoteFilename = ""; // e.g. "another-one.mp3" (used for local filename)
+        Net::HttpRequest@ activeDownloadRequest = null; // Handle to ongoing download
+        string defaultSoundSettingVarName = ""; // e.g., "Setting_Enable_Default_bonkwav"
     }
 
     // --- Module State ---
-    array<SoundInfo> g_allSounds;        // Master list containing metadata for all discovered sound files.
-    int g_orderedSoundIndex = 0;         // Current index for 'Ordered' playback mode.
-    string g_lastPlayedSoundPath = "";   // Path of the sound played most recently (for anti-repeat).
-    int g_consecutivePlayCount = 0;      // How many times the last sound has played consecutively.
-    bool g_isInitialized = false;        // Tracks if Initialize() has run.
+    array<SoundInfo@> g_defaultSounds;      // Metadata for default sounds
+    array<SoundInfo@> g_localCustomSounds;  // Metadata for user's local custom sounds
+    array<SoundInfo@> g_remoteSounds;       // Metadata for remote sounds (from JSON)
+    array<SoundInfo@> g_playableSounds;     // Combined, filtered list of sounds that can actually be played
 
+    int g_orderedSoundIndex = 0;
+    string g_lastPlayedPath = "";
+    int g_consecutivePlayCount = 0;
+    bool g_isInitialized = false;
+    string g_downloadedSoundsFolder = "";
+    string g_userLocalSoundsFolder = ""; 
+
+    const string REMOTE_SOUND_LIST_URL = "https://file.shikes.space/api/bonkpp-sounds.json";
+    const string REMOTE_SOUND_BASE_URL = "https://file.shikes.space/TM/BonkPP/";
+    
     /**
-     * Initializes the sound player module by performing an initial scan for sounds.
-     *       Called on plugin load via main.as -> Main().
+     * Releases all loaded Audio::Sample handles and cancels active downloads.
      */
-    void Initialize() {
-        LoadSounds(); // Scan for sounds and populate g_allSounds.
-        g_isInitialized = true;
-        Debug::Print("Loading", "SoundPlayer Initialized.");
+    void ProcessSoundListForRelease(array<SoundInfo@> &in soundList) {
+        for (uint i = 0; i < soundList.Length; i++) {
+            if (soundList[i].sample !is null) {
+                @soundList[i].sample = null;
+                 Debug::Print("SoundPlayer", "Released sample for: " + soundList[i].displayName);
+            }
+            if (soundList[i].activeDownloadRequest !is null) {
+                // HttpRequest doesn't have an Abort(). It will complete but be ignored.
+                @soundList[i].activeDownloadRequest = null;
+                 Debug::Print("SoundPlayer", "Cleared active download request for: " + soundList[i].displayName);
+            }
+        }
     }
 
     /**
-     * Scans for default sounds (packaged with the plugin) and custom sounds
-     *       (in PluginStorage/Bonk++/Sounds/), updates the internal list `g_allSounds`,
-     *       and applies enabled/disabled status based on settings.
-     *       Crucially, this *only loads metadata*, not the actual audio samples.
-     *       Called by Initialize() and main.as -> OnSettingsChanged().
+     * Re-scans the DownloadedSounds folder for already known remote sounds
+     * and updates their isDownloaded and loadState status.
+     * It does NOT re-fetch the JSON list from the server.
      */
-    void LoadSounds() {
-        Debug::Print("Loading", "--- Scanning for Sound Files ---");
-        array<SoundInfo> newSoundList; // Build a fresh list to replace the old one.
-
-        // --- 1. Process Default Sounds ---
-        // Map default filenames to their corresponding enable Setting variable name suffixes.
-        dictionary defaultSoundSettingsMap;
-        defaultSoundSettingsMap["bonk.wav"] = Setting_Enable_bonkwav;
-        defaultSoundSettingsMap["oof.wav"] = Setting_Enable_oofwav;
-        defaultSoundSettingsMap["vineboom.mp3"] = Setting_Enable_vineboommp3;
-        // Add more default sounds here if needed.
-
-        array<string> defaultSoundFiles = defaultSoundSettingsMap.GetKeys();
-        Debug::Print("Loading", "Checking for default sounds in 'Sounds/': " + string::Join(defaultSoundFiles, ", "));
-
-        for (uint i = 0; i < defaultSoundFiles.Length; i++) {
-            string filename = defaultSoundFiles[i];
-            string relativePath = "Sounds/" + filename; // Path relative to the plugin's root directory.
-
-            // Verify the file exists within the plugin's own resources using FileSource.
-            // FileSource attempts to open the file; EOF() is true if it failed or is empty.
-            IO::FileSource fs(relativePath);
-            if (fs.EOF()) {
-                warn("[Bonk++] Default sound file not found in plugin resources: '" + relativePath + "'");
-                continue; // Skip this file.
-            }
-            // Note: fs goes out of scope here, closing the source. We only needed it to check existence.
-
-            // Create metadata entry for this default sound.
-            SoundInfo info;
-            info.path = relativePath; // Store relative path for loading via Audio::LoadSample.
-            info.isCustom = false;
-            info.displayName = filename;
-            // Look up the corresponding setting to determine if this sound is enabled.
-            bool isEnabledSetting = true; // Default to true if lookup fails.
-            if (defaultSoundSettingsMap.Get(filename, isEnabledSetting)) {
-                info.enabled = isEnabledSetting;
-            } else {
-                warn("[Bonk++] Setting mapping missing for default sound: " + filename + ". Defaulting to enabled.");
-                info.enabled = true;
-            }
-            // Ensure loading flags and sample handle are reset (important if reloading settings).
-            info.loadAttempted = false;
-            info.loadFailed = false;
-            @info.sample = null;
-
-            Debug::Print("Loading", "Found default sound: '" + info.displayName + "' (Enabled: " + info.enabled + ")");
-            newSoundList.InsertLast(info);
+    void RefreshDownloadedSoundsStatus() {
+        Debug::Print("SoundPlayer", "Refreshing status of downloaded remote sounds...");
+        if (g_remoteSounds.Length == 0) {
+            Debug::Print("SoundPlayer", "No remote sounds defined, skipping refresh of downloaded status.");
+            return;
         }
 
-        // --- 2. Process Custom Sounds ---
-        if (Setting_EnableCustomSounds) {
-            // Get the absolute path to the plugin's dedicated storage folder.
-            string storageFolder = IO::FromStorageFolder(""); // e.g., C:\Users\User\OpenplanetNext\PluginStorage\Bonk++
-            string customSoundFolder = Path::Join(storageFolder, "Sounds"); // Target subfolder.
-            Debug::Print("Loading", "Checking for custom sounds in: " + customSoundFolder);
+        bool changed = false;
+        for (uint i = 0; i < g_remoteSounds.Length; i++) {
+            SoundInfo@ sf = g_remoteSounds[i];
+            if (sf is null || sf.sourceType != SoundSourceType::Remote) continue;
 
-            // Ensure the custom sounds directory exists. Create it if necessary.
-            if (!IO::FolderExists(customSoundFolder)) {
-                Debug::Print("Loading", "- Custom sound folder does not exist. Attempting creation...");
-                 try {
-                     IO::CreateFolder(customSoundFolder, true); // Recursive creation.
-                     Debug::Print("Loading", "- Custom sound folder created successfully.");
-                 } catch {
-                     warn("[Bonk++] Failed to create custom sound folder: '" + customSoundFolder + "'. Cannot load custom sounds. Error: " + getExceptionInfo());
-                     // Skip custom sound loading if directory creation failed.
-                 }
+            bool previouslyDownloaded = sf.isDownloaded;
+            string expectedLocalPath = Path::Join(g_downloadedSoundsFolder, sf.remoteFilename);
+
+            if (IO::FileExists(expectedLocalPath)) {
+                if (!sf.isDownloaded || sf.loadState == SoundLoadState::LoadFailed_Download) {
+                    Debug::Print("SoundPlayer", "Found previously missing/failed download: " + sf.displayName);
+                    changed = true;
+                }
+                sf.isDownloaded = true;
+                // If it was Idle or failed download, now it's Downloaded.
+                // If it was already Downloaded or Downloading (though unlikely to be downloading here), state remains.
+                if (sf.loadState == SoundLoadState::Idle || sf.loadState == SoundLoadState::LoadFailed_Download) {
+                     sf.loadState = SoundLoadState::Downloaded;
+                }
+                // If sample load had failed previously, but file now exists, reset sample load state
+                // to allow a new attempt if LoadAudioSample is called.
+                if (sf.loadState == SoundLoadState::LoadFailed_Sample) {
+                    sf.loadState = SoundLoadState::Downloaded; // Reset to allow re-attempt of sample loading
+                    @sf.sample = null; // Ensure sample is reloaded
+                    Debug::Print("SoundPlayer", "Resetting sample load status for: " + sf.displayName + " (file found)");
+                    changed = true;
+                }
+
+            } else { // File does not exist locally
+                if (sf.isDownloaded) {
+                    Debug::Print("SoundPlayer", "Previously downloaded sound no longer found: " + sf.displayName);
+                    changed = true;
+                }
+                sf.isDownloaded = false;
+                sf.loadState = SoundLoadState::Idle; // Or some other state indicating not available
+                if (sf.sample !is null) {
+                    @sf.sample = null; // Unload sample if file is gone
+                    Debug::Print("SoundPlayer", "Unloaded sample for missing file: " + sf.displayName);
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed) {
+            Debug::Print("SoundPlayer", "Downloaded sound statuses updated. Rebuilding playable list.");
+            RebuildPlayableSoundsList();
+        } else {
+            Debug::Print("SoundPlayer", "No changes to downloaded sound statuses.");
+        }
+    }
+
+    void ReleaseAllSamples() {
+        ProcessSoundListForRelease(g_defaultSounds);
+        ProcessSoundListForRelease(g_localCustomSounds);
+        ProcessSoundListForRelease(g_remoteSounds);
+        Debug::Print("SoundPlayer", "Released all audio samples and cleared download requests.");
+    }
+
+    // --- Initialization & Loading ---
+
+    /**
+     * Initializes the sound player module.
+     */
+    void Initialize() {
+        if (g_isInitialized) { // If re-initializing, clear old data
+            ReleaseAllSamples();
+            g_defaultSounds.Resize(0);
+            g_localCustomSounds.Resize(0);
+            g_remoteSounds.Resize(0);
+            g_playableSounds.Resize(0);
+        }
+
+        string basePluginStoragePath = IO::FromStorageFolder("");
+        Debug::Print("SoundPlayer", "Base Plugin Storage Path: " + basePluginStoragePath);
+        
+        // Define and create the "DownloadedSounds" subfolder
+        g_downloadedSoundsFolder = Path::Join(basePluginStoragePath, "DownloadedSounds/");
+        if (!IO::FolderExists(g_downloadedSoundsFolder)) {
+            try {
+                IO::CreateFolder(g_downloadedSoundsFolder, true);
+                Debug::Print("SoundPlayer", "Created DownloadedSounds folder: " + g_downloadedSoundsFolder);
+            } catch {
+                warn("[Bonk++] Failed to create DownloadedSounds folder: " + g_downloadedSoundsFolder + ". Error: " + getExceptionInfo());
+            }
+        }
+
+        // Define and create the "LocalSounds" subfolder (renamed from "Sounds/")
+        g_userLocalSoundsFolder = Path::Join(basePluginStoragePath, "LocalSounds/");
+        if (!IO::FolderExists(g_userLocalSoundsFolder)) {
+            try {
+                IO::CreateFolder(g_userLocalSoundsFolder, true);
+                Debug::Print("SoundPlayer", "Created LocalSounds folder: " + g_userLocalSoundsFolder);
+            } catch {
+                warn("[Bonk++] Failed to create LocalSounds folder: " + g_userLocalSoundsFolder + ". Error: " + getExceptionInfo());
+            }
+        }
+        PopulateDefaultSoundList();
+        ReloadLocalCustomSounds();
+        startnew(Coroutine_FetchAndProcessRemoteSoundList);
+
+        g_isInitialized = true;
+        Debug::Print("SoundPlayer", "Module Initialized.");
+    }
+
+    void AddDefaultSound(const string &in filename) {
+        string relativePath = "Sounds/" + filename;
+        IO::FileSource fs(relativePath);
+        if (fs.EOF()) {
+            warn("[Bonk++] Default sound file not found in plugin resources: '" + relativePath + "'");
+            return;
+        }
+
+        SoundInfo@ info = SoundInfo();
+        info.displayName = filename;
+        info.path = relativePath;
+        info.sourceType = SoundSourceType::Default;
+        info.loadState = SoundLoadState::Idle;
+        g_defaultSounds.InsertLast(info);
+        Debug::Print("SoundPlayer", "Added default sound: " + filename + ", Initial Enabled: " + info.isEnabledByUser);
+    }
+
+    void PopulateDefaultSoundList() {
+        g_defaultSounds.Resize(0);
+        Debug::Print("SoundPlayer", "Populating default sound list...");
+        AddDefaultSound("bonk.wav");
+        AddDefaultSound("oof.wav");
+        AddDefaultSound("vineboom.mp3");
+        RebuildPlayableSoundsList(); // Rebuild after populating
+    }
+
+    void ReloadLocalCustomSounds() {
+        g_localCustomSounds.Resize(0); // Clear current before reloading
+        Debug::Print("SoundPlayer", "Reloading local custom sounds from: " + g_userLocalSoundsFolder);
+
+        if (!Setting_EnableLocalCustomSounds) {
+            Debug::Print("SoundPlayer", "Local custom sounds are disabled by master setting.");
+            RebuildPlayableSoundsList();
+            return;
+        }
+        if (!IO::FolderExists(g_userLocalSoundsFolder)) {
+            warn("[Bonk++] LocalSounds folder does not exist: " + g_userLocalSoundsFolder);
+            RebuildPlayableSoundsList();
+            return;
+        }
+        array<string>@ files = IO::IndexFolder(g_userLocalSoundsFolder, false);
+        if (files !is null) {
+            for (uint i = 0; i < files.Length; i++) {
+                string fullPath = files[i];
+                string filename = Path::GetFileName(fullPath);
+                string ext = Path::GetExtension(filename).ToLower();
+                if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") {
+                    SoundInfo@ info = SoundInfo();
+                    info.displayName = filename;
+                    info.path = fullPath;
+                    info.sourceType = SoundSourceType::LocalCustom;
+                    info.isEnabledByUser = true; // Always enabled if master toggle is on
+                    info.loadState = SoundLoadState::Idle;
+                    g_localCustomSounds.InsertLast(info);
+                }
+            }
+        }
+        Debug::Print("SoundPlayer", "Found " + g_localCustomSounds.Length + " local custom sounds in " + g_userLocalSoundsFolder);
+        RebuildPlayableSoundsList();
+    }
+
+    void Coroutine_FetchAndProcessRemoteSoundList() {
+
+        Debug::Print("SoundPlayer", "Fetching remote sound list from: " + REMOTE_SOUND_LIST_URL);
+        ProcessSoundListForRelease(g_remoteSounds); // Release old remote samples/requests
+        g_remoteSounds.Resize(0);
+
+        Net::HttpRequest@ request = Net::HttpGet(REMOTE_SOUND_LIST_URL);
+        yield(); // Allow request to start
+        while (!request.Finished()) { yield(); }
+
+        if (request.ResponseCode() == 200) {
+            string responseString = request.String(); // Get the response string
+            string responseExcerpt = responseString.SubStr(0, Math::Min(500, responseString.Length));
+            Debug::Print("SoundPlayer", "Remote sound list HTTP 200. Response content (first " + responseExcerpt.Length + " chars): '''\n" + responseExcerpt + "\n'''");
+
+            Json::Value@ jsonData = null;
+            try {
+                if (responseString.Trim().Length == 0) {
+                    warn("[Bonk++] Remote sound list response string is empty. Cannot parse JSON.");
+                } else {
+                    @jsonData = Json::Parse(responseString);
+                }
+            } catch {
+                warn("[Bonk++] EXCEPTION during Json::Parse for remote sound list. Error: " + getExceptionInfo());
             }
 
-            // Proceed only if the folder exists (or was successfully created).
-             if (IO::FolderExists(customSoundFolder)) {
-                // List files/folders within the custom sound folder (non-recursively).
-                array<string>@ filesInFolder = IO::IndexFolder(customSoundFolder, false);
-                if (filesInFolder !is null && filesInFolder.Length > 0) {
-                    Debug::Print("Loading", "Found " + filesInFolder.Length + " items in custom folder. Processing files...");
-                    for (uint i = 0; i < filesInFolder.Length; i++) {
-                        string fullPath = filesInFolder[i]; // IO::IndexFolder returns absolute paths here.
-                        string filename = Path::GetFileName(fullPath);
-                        string extension = Path::GetExtension(filename).ToLower(); // Lowercase for comparison.
+            if (jsonData !is null) {
+                Json::Type parsedType = jsonData.GetType(); // Get the type of the parsed JSON root
+                if (parsedType == Json::Type::Array) {
+                    Debug::Print("SoundPlayer", "Remote sound list JSON parsed successfully as Array. Processing " + jsonData.Length + " entries.");
+                    for (uint i = 0; i < jsonData.Length; i++) {
+                        Json::Value@ item = jsonData[i];
+                        if (item.GetType() == Json::Type::Object && item.HasKey("name") && item.HasKey("file")) {
+                            string displayName = item["name"];
+                            string remoteFilename = item["file"];
 
-                        // Check if the file extension is supported.
-                        if (extension == ".ogg" || extension == ".wav" || extension == ".mp3") {
-                            Debug::Print("Loading", "Found custom sound file: '" + filename + "'");
-                            // Create metadata entry.
-                            SoundInfo info;
-                            info.path = fullPath; // Store the full absolute path for loading.
-                            info.isCustom = true;
-                            info.displayName = filename;
-                            info.enabled = true; // Enabled because the master custom toggle is on.
-                            info.loadAttempted = false;
-                            info.loadFailed = false;
-                            @info.sample = null;
-                            newSoundList.InsertLast(info);
+                            SoundInfo@ info = SoundInfo();
+                            info.displayName = displayName;
+                            info.remoteFilename = remoteFilename;
+                            info.remoteUrl = REMOTE_SOUND_BASE_URL + remoteFilename;
+                            info.path = Path::Join(g_downloadedSoundsFolder, remoteFilename);
+                            info.sourceType = SoundSourceType::Remote;
+                            info.loadState = SoundLoadState::Idle;
+
+                            if (IO::FileExists(info.path)) {
+                                info.isDownloaded = true;
+                                info.loadState = SoundLoadState::Downloaded;
+                            } else {
+                                info.isDownloaded = false;
+                            }
+                            g_remoteSounds.InsertLast(info);
                         } else {
-                             // Silently ignore unsupported files unless debugging is enabled.
-                             Debug::Print("Loading", "Skipping non-supported file type: '" + filename + "'");
+                            warn("[Bonk++] Malformed item in remote sound list JSON at index " + i + ". Expected Object with 'name' and 'file'. Got type: " + item.GetType());
                         }
                     }
                 } else {
-                    Debug::Print("Loading", "No files found in custom sound folder: " + customSoundFolder);
+                    warn("[Bonk++] Remote sound list JSON root is not an Array. Parsed type: " + parsedType);
                 }
+            } else {
+                warn("[Bonk++] Json::Parse returned null for remote sound list.");
             }
-            // else: Folder doesn't exist and couldn't be created (warning already logged).
         } else {
-            Debug::Print("Loading", "Custom sounds are disabled in settings.");
+            warn("[Bonk++] Failed to fetch remote sound list. HTTP: " + request.ResponseCode() + ", Error: " + request.Error());
         }
+        RebuildPlayableSoundsList();
+        Debug::Print("SoundPlayer", "Remote sound list processing finished. Total remote sounds: " + g_remoteSounds.Length);
+    }
 
-        // --- 3. Update Master List & Reset State ---
-        // Release references to samples held by the *previous* g_allSounds list.
-        // If a sample is also present in the new list, its reference count won't drop to zero,
-        // preventing unnecessary unloading/reloading by the Audio system.
-        for (uint i = 0; i < g_allSounds.Length; i++) {
-            @g_allSounds[i].sample = null; // Nullify the handle reference in the old list entry.
+
+    /**
+     * Ensures a specific remote sound is downloaded. Starts download if needed.
+     */
+    void EnsureRemoteSoundDownloaded(SoundInfo@ sf) {
+        if (sf is null || sf.sourceType != SoundSourceType::Remote) return;
+        if (sf.isDownloaded || sf.loadState == SoundLoadState::Downloading || sf.loadState == SoundLoadState::LoadFailed_Download) return;
+
+        // Ensure downloaded sounds folder exists
+        if (!IO::FolderExists(g_downloadedSoundsFolder)) {
+            try {
+                IO::CreateFolder(g_downloadedSoundsFolder, true);
+            } catch {
+                warn("[Bonk++] Failed to create downloaded sounds folder: " + g_downloadedSoundsFolder + ". Error: " + getExceptionInfo());
+                sf.loadState = SoundLoadState::LoadFailed_Download;
+                RebuildPlayableSoundsList();
+                return;
+            }
         }
+        startnew(Coroutine_DownloadSingleSound, sf);
+    }
 
-        // Replace the global list with the newly constructed list.
-        g_allSounds = newSoundList;
+    void Coroutine_DownloadSingleSound(ref userdata) {
+        SoundInfo@ sf = cast<SoundInfo@>(userdata);
+        if (sf is null) { warn("[Bonk++] Coroutine_DownloadSingleSound: userdata was null."); yield(); return; }
+        if (sf.activeDownloadRequest !is null) { Debug::Print("SoundPlayer", "Download already in progress for " + sf.displayName); yield(); return; }
 
-        // Reset playback state related to the list contents.
-        g_lastPlayedSoundPath = "";
-        g_consecutivePlayCount = 0;
-        g_orderedSoundIndex = 0; // Reset ordered index.
+        Debug::Print("SoundPlayer", "Starting download for: " + sf.displayName + " from " + sf.remoteUrl);
+        sf.loadState = SoundLoadState::Downloading;
+        RebuildPlayableSoundsList();
 
-        Debug::Print("Loading", "Sound scan complete. Total sound metadata entries: " + g_allSounds.Length);
+        @sf.activeDownloadRequest = Net::HttpGet(sf.remoteUrl);
+        yield();
+        while(!sf.activeDownloadRequest.Finished()) { yield(); }
+
+        if (sf.activeDownloadRequest.ResponseCode() == 200) {
+            try {
+                sf.activeDownloadRequest.SaveToFile(sf.path);
+                sf.isDownloaded = true;
+                sf.loadState = SoundLoadState::Downloaded;
+                Debug::Print("SoundPlayer", "Downloaded: " + sf.displayName);
+            } catch {
+                warn("[Bonk++] Failed to save downloaded file '" + sf.path + "'. Error: " + getExceptionInfo());
+                sf.isDownloaded = false; sf.loadState = SoundLoadState::LoadFailed_Download;
+            }
+        } else {
+            warn("[Bonk++] Failed to download '" + sf.displayName + "'. HTTP: " + sf.activeDownloadRequest.ResponseCode() + " Error: " + sf.activeDownloadRequest.Error());
+            sf.isDownloaded = false; sf.loadState = SoundLoadState::LoadFailed_Download;
+        }
+        @sf.activeDownloadRequest = null;
+        RebuildPlayableSoundsList();
     }
 
     /**
-     * Selects a sound based on current settings (mode, enabled status),
-     *       loads its audio sample if not already loaded, and plays it.
-     *       Called by main.as when a bonk occurs and the chance check passes.
+     * Loads the Audio::Sample@ for a SoundInfo if not already loaded.
+     * Returns true if sample is loaded and ready, false otherwise.
+     */
+    bool LoadAudioSample(SoundInfo@ sf) {
+        if (sf is null) return false;
+        if (sf.sample !is null) return true;
+        if (sf.loadState == SoundLoadState::LoadFailed_Sample || sf.loadState == SoundLoadState::LoadFailed_Download) return false;
+
+        if (sf.sourceType == SoundSourceType::Remote && !sf.isDownloaded) {
+            Debug::Print("SoundPlayer", "Cannot load sample for remote sound '" + sf.displayName + "', not downloaded. Requesting download.");
+            EnsureRemoteSoundDownloaded(sf);
+            return false;
+        }
+
+        Debug::Print("SoundPlayer", "Attempting to load audio sample for: " + sf.displayName + " (Path: " + sf.path + ")");
+        Audio::Sample@ loadedSample = null;
+        try {
+            if (sf.sourceType == SoundSourceType::Default) @loadedSample = Audio::LoadSample(sf.path);
+            else @loadedSample = Audio::LoadSampleFromAbsolutePath(sf.path);
+        } catch { warn("[Bonk++] EXCEPTION loading sample for '" + sf.path + "'. Error: " + getExceptionInfo()); }
+
+        if (loadedSample is null) {
+            warn("[Bonk++] Failed to load Audio::Sample for: " + sf.displayName + " from path: " + sf.path);
+            sf.loadState = SoundLoadState::LoadFailed_Sample; @sf.sample = null; return false;
+        } else {
+            Debug::Print("SoundPlayer", "Audio::Sample loaded for: " + sf.displayName);
+            @sf.sample = loadedSample; return true;
+        }
+    }
+
+    // Helper to get the string setting value for remote sound enable state
+    string GetRemoteSoundEnableSettingName(const string &in remoteFilename) {
+        string settingName = "Setting_Enable_Remote_" + remoteFilename;
+        // Sanitize for setting variable name (AngelScript variable names can't have '.')
+        settingName = settingName.Replace(".mp3", "_mp3").Replace(".wav", "_wav").Replace(".ogg", "_ogg");
+        settingName = settingName.Replace("-", "_"); // And hyphens
+        return settingName;
+    }
+
+    /**
+     * Rebuilds the g_playableSounds list based on current settings and states.
+     * This list contains references to SoundInfo objects that are currently eligible for playback.
+     */
+    void RebuildPlayableSoundsList() {
+        Debug::Print("SoundPlayer", "Rebuilding playable sounds list...");
+        g_playableSounds.Resize(0);
+
+        // 1. Default Sounds
+        if (Setting_EnableDefaultSounds) {
+            for (uint i = 0; i < g_defaultSounds.Length; i++) {
+                SoundInfo@ sf = g_defaultSounds[i];
+                if (sf is null) continue;
+                // Check the specific Setting_Enable_Default_X for this sound
+                bool isThisSoundEnabled = false;
+                if (sf.displayName == "bonk.wav") isThisSoundEnabled = Setting_Enable_Default_bonkwav;
+                else if (sf.displayName == "oof.wav") isThisSoundEnabled = Setting_Enable_Default_oofwav;
+                else if (sf.displayName == "vineboom.mp3") isThisSoundEnabled = Setting_Enable_Default_vineboommp3;
+                // Add more else if for other default sounds
+
+                if (isThisSoundEnabled && sf.loadState != SoundLoadState::LoadFailed_Sample) {
+                    g_playableSounds.InsertLast(sf);
+                }
+            }
+        }
+
+        // 2. Local Custom Sounds (globally enabled/disabled by Setting_EnableLocalCustomSounds)
+        if (Setting_EnableLocalCustomSounds) {
+            for (uint i = 0; i < g_localCustomSounds.Length; i++) {
+                SoundInfo@ sf = g_localCustomSounds[i];
+                if (sf is null) continue;
+                if (sf.loadState != SoundLoadState::LoadFailed_Sample) {
+                    g_playableSounds.InsertLast(sf);
+                }
+            }
+        }
+
+        // 3. Remote Sounds
+        if (Setting_EnableRemoteSounds) {
+            for (uint i = 0; i < g_remoteSounds.Length; i++) {
+                SoundInfo@ sf = g_remoteSounds[i];
+                if (sf is null) continue;
+
+                string settingName = GetRemoteSoundEnableSettingName(sf.remoteFilename);
+                bool isThisRemoteSoundEnabled = GetSettingBool(settingName, false); // Default to false if setting not found
+
+                if (isThisRemoteSoundEnabled && sf.isDownloaded &&
+                    sf.loadState != SoundLoadState::LoadFailed_Sample &&
+                    sf.loadState != SoundLoadState::LoadFailed_Download) {
+                    g_playableSounds.InsertLast(sf);
+                }
+            }
+        }
+        Debug::Print("SoundPlayer", "Rebuilt playable sounds list. Count: " + g_playableSounds.Length);
+        if (g_playableSounds.Length > 0) g_orderedSoundIndex = g_orderedSoundIndex % g_playableSounds.Length;
+        else g_orderedSoundIndex = 0;
+    }
+
+
+    /**
+     * Selects a sound based on current settings, loads its audio sample if needed, and plays it.
      */
     void PlayBonkSound() {
-        // Ensure initialization has run (safety check).
         if (!g_isInitialized) Initialize();
+        if (g_playableSounds.Length == 0) { Debug::Print("Playback", "No sounds available. Cannot play bonk."); return; }
 
-        // --- 1. Filter for Playable Sounds ---
-        // Create a temporary list of indices pointing to sounds in g_allSounds
-        // that are currently enabled and haven't failed loading previously.
-        array<uint> enabledIndices;
-        for (uint i = 0; i < g_allSounds.Length; i++) {
-            if (g_allSounds[i].enabled && !g_allSounds[i].loadFailed) {
-                enabledIndices.InsertLast(i);
-            }
-        }
-        Debug::Print("Playback", "Found " + enabledIndices.Length + " enabled and loadable sounds.");
-
-        // Exit if no sounds are available.
-        if (enabledIndices.Length == 0) {
-            warn("[Bonk++] No enabled sounds found or all failed to load. Cannot play sound.");
-            return;
-        }
-
-        // --- 2. Select Sound Index ---
-        // This index will point into the main g_allSounds list.
-        uint selectedIndexInMasterList = uint(-1); // Initialize to an invalid index.
-        bool soundSelected = false;
+        SoundInfo@ soundToPlay = null;
+        int selectedPlayableIndex = -1;
 
         if (Setting_SoundPlaybackMode == SoundMode::Random) {
-            // -- Random Mode --
-            uint potentialEnabledIndex = Math::Rand(0, enabledIndices.Length); // Pick from enabled list.
-            uint potentialMasterIndex = enabledIndices[potentialEnabledIndex];  // Map to master list index.
-            string potentialPath = g_allSounds[potentialMasterIndex].path;
+            uint potentialPlayableIndex = Math::Rand(0, g_playableSounds.Length);
+            string potentialPath = g_playableSounds[potentialPlayableIndex].path;
 
-            // Apply anti-repeat constraint if needed.
-            if (enabledIndices.Length > 1 && potentialPath == g_lastPlayedSoundPath && g_consecutivePlayCount >= int(Setting_MaxConsecutiveRepeats)) {
-                Debug::Print("Playback", "Anti-repeat constraint hit for '" + g_allSounds[potentialMasterIndex].displayName + "' (played " + g_consecutivePlayCount + "/" + Setting_MaxConsecutiveRepeats + " times). Retrying selection...");
-                int retryCount = 0; const int MAX_RETRIES = 10; // Limit retries.
-                // Try to find a *different* sound.
-                while (potentialPath == g_lastPlayedSoundPath && retryCount < MAX_RETRIES) {
-                    potentialEnabledIndex = Math::Rand(0, enabledIndices.Length);
-                    potentialMasterIndex = enabledIndices[potentialEnabledIndex];
-                    potentialPath = g_allSounds[potentialMasterIndex].path;
+            if (g_playableSounds.Length > 1 && potentialPath == g_lastPlayedPath && g_consecutivePlayCount >= int(Setting_MaxConsecutiveRepeats)) {
+                Debug::Print("Playback", "Anti-repeat constraint hit for '" + g_playableSounds[potentialPlayableIndex].displayName + "'. Retrying...");
+                int retryCount = 0; const int MAX_RETRIES = 10;
+                while (potentialPath == g_lastPlayedPath && retryCount < MAX_RETRIES) {
+                    potentialPlayableIndex = Math::Rand(0, g_playableSounds.Length);
+                    potentialPath = g_playableSounds[potentialPlayableIndex].path;
                     retryCount++;
                 }
-                if (potentialPath == g_lastPlayedSoundPath) {
-                    warn("[Bonk++] Could not select a different random sound after " + MAX_RETRIES + " retries. Playing repeat.");
-                } else {
-                    Debug::Print("Playback", "Anti-repeat retry selected different sound: '" + g_allSounds[potentialMasterIndex].displayName + "'");
-                }
             }
-            // Final selection for Random mode.
-            selectedIndexInMasterList = potentialMasterIndex;
-            soundSelected = true;
-            Debug::Print("Playback", "Random mode selected: '" + g_allSounds[selectedIndexInMasterList].displayName + "' (Master Index: " + selectedIndexInMasterList + ")");
-
-        } else { // Setting_SoundPlaybackMode == SoundMode::Ordered
-            // -- Ordered Mode --
-            int count = int(enabledIndices.Length);
-            // Ensure the ordered index wraps around the number of *enabled* sounds.
-            g_orderedSoundIndex = g_orderedSoundIndex % count;
-            selectedIndexInMasterList = enabledIndices[g_orderedSoundIndex]; // Map ordered index to master list index.
-            soundSelected = true;
-            Debug::Print("Playback", "Ordered mode selected: '" + g_allSounds[selectedIndexInMasterList].displayName + "' (Master Index: " + selectedIndexInMasterList + ", Ordered Index: " + g_orderedSoundIndex + ")");
-            // Increment and wrap the ordered index for the *next* call.
-            g_orderedSoundIndex = (g_orderedSoundIndex + 1) % count;
+            selectedPlayableIndex = int(potentialPlayableIndex);
+        } else { // Ordered
+            g_orderedSoundIndex = g_orderedSoundIndex % g_playableSounds.Length; // Wrap index
+            selectedPlayableIndex = g_orderedSoundIndex;
+            g_orderedSoundIndex = (g_orderedSoundIndex + 1) % g_playableSounds.Length; // Increment for next time
         }
 
-        // Validate the selected index (should always be valid if enabledIndices > 0).
-        if (!soundSelected || selectedIndexInMasterList >= g_allSounds.Length) {
-            warn("[Bonk++] Internal error: Failed to select a valid sound index.");
+        if (selectedPlayableIndex < 0 || selectedPlayableIndex >= int(g_playableSounds.Length)) {
+            warn("[Bonk++] Failed to select a sound from playable list.");
             return;
         }
 
-        // --- 3. Update Anti-Repeat State ---
-        string selectedPath = g_allSounds[selectedIndexInMasterList].path;
-        if (selectedPath == g_lastPlayedSoundPath) {
-            g_consecutivePlayCount++; // Increment if the same sound is playing again.
-        } else {
-            g_lastPlayedSoundPath = selectedPath; // Store the new path.
-            g_consecutivePlayCount = 1;          // Reset counter for the new sound.
-        }
-        Debug::Print("Playback", "Consecutive play count for '" + g_allSounds[selectedIndexInMasterList].displayName + "': " + g_consecutivePlayCount);
+        @soundToPlay = g_playableSounds[selectedPlayableIndex];
 
-        // --- 4. On-Demand Audio Sample Loading ---
-        // Check if the sample needs loading (is null) and hasn't failed loading before.
-        // Directly modify the element in g_allSounds. Handles are reference counted, so this is safe.
-        if (g_allSounds[selectedIndexInMasterList].sample is null && !g_allSounds[selectedIndexInMasterList].loadAttempted) {
-            string pathToLoad = g_allSounds[selectedIndexInMasterList].path;
-            string displayName = g_allSounds[selectedIndexInMasterList].displayName;
-            bool isCustom = g_allSounds[selectedIndexInMasterList].isCustom;
+        // Update anti-repeat state
+        if (soundToPlay.path == g_lastPlayedPath) g_consecutivePlayCount++;
+        else { g_lastPlayedPath = soundToPlay.path; g_consecutivePlayCount = 1; }
+        Debug::Print("Playback", "Selected: '" + soundToPlay.displayName + "', Consecutive: " + g_consecutivePlayCount);
 
-            Debug::Print("Playback", "Sample for '" + displayName + "' not loaded. Attempting load from: " + pathToLoad);
-            g_allSounds[selectedIndexInMasterList].loadAttempted = true; // Mark attempt even before try-catch.
 
-            Audio::Sample@ loadedSample = null; // Temporary handle.
-            try {
-                // Use the correct Audio loading function based on whether it's a custom or default sound.
-                if (isCustom) {
-                    @loadedSample = Audio::LoadSampleFromAbsolutePath(pathToLoad); // Absolute path for custom.
-                } else {
-                    @loadedSample = Audio::LoadSample(pathToLoad); // Relative path for default.
-                }
-             } catch {
-                 warn("[Bonk++] EXCEPTION during sound loading for: '" + pathToLoad + "'. Error: " + getExceptionInfo());
-                 @loadedSample = null; // Ensure handle is null on error.
-             }
-
-            // Assign the loaded sample (or null if failed) back to the array element.
-            @g_allSounds[selectedIndexInMasterList].sample = loadedSample;
-
-            // Update the loadFailed flag based on the result.
-            if (loadedSample is null) {
-                warn("[Bonk++] Failed to load sample for: '" + pathToLoad + "'. Sound disabled.");
-                g_allSounds[selectedIndexInMasterList].loadFailed = true;
-            } else {
-                Debug::Print("Playback", "- Sample loaded successfully for '" + displayName + "'.");
-                g_allSounds[selectedIndexInMasterList].loadFailed = false;
-            }
+        // Ensure sample is loaded (this also handles remote sounds not yet downloaded by trying to trigger download)
+        if (!LoadAudioSample(soundToPlay)) {
+            // LoadAudioSample already logs warnings if it fails or if a remote sound isn't downloaded
+            Debug::Print("Playback", "Failed to ensure sample was loaded for: " + soundToPlay.displayName + ". Skipping playback.");
+            return;
         }
 
-        // --- 5. Play Sound ---
-        // Check again if the sample is valid and loading didn't fail (might have failed in step 4).
-        if (g_allSounds[selectedIndexInMasterList].sample !is null && !g_allSounds[selectedIndexInMasterList].loadFailed) {
-            string displayName = g_allSounds[selectedIndexInMasterList].displayName;
-            Debug::Print("Playback", "Playing sound: '" + displayName + "' (Volume: " + Setting_BonkVolume + "%)");
-
-            Audio::Voice@ voice = null; // Handle for the playing sound instance.
-            try {
-                // Play the audio sample.
-                @voice = Audio::Play(g_allSounds[selectedIndexInMasterList].sample);
-             } catch {
-                 warn("[Bonk++] EXCEPTION during Audio::Play for: '" + g_allSounds[selectedIndexInMasterList].path + "'. Error: " + getExceptionInfo());
-                 @voice = null;
-             }
-
-            // If playback initiated successfully, set the volume.
-            if (voice !is null) {
-                 try {
-                    // Convert volume setting (0-100) to gain (0.0-1.0).
-                    voice.SetGain(float(Setting_BonkVolume) / 100.0f);
-                    Debug::Print("Playback", "- Sound played successfully.");
-                 } catch {
-                     warn("[Bonk++] EXCEPTION during voice.SetGain for: '" + g_allSounds[selectedIndexInMasterList].path + "'. Error: " + getExceptionInfo());
-                 }
-            } else {
-                // Log if Audio::Play failed to return a voice handle.
-                warn("[Bonk++] Audio::Play returned null voice handle for: '" + g_allSounds[selectedIndexInMasterList].path + "'.");
-            }
-        } else {
-            // Log why playback was skipped if the sample is invalid or loading failed.
-            if (!g_allSounds[selectedIndexInMasterList].loadFailed) { // Avoid repeating the load failure warning.
-                warn("[Bonk++] Cannot play sound: Sample handle is null for '" + g_allSounds[selectedIndexInMasterList].path + "'.");
-            } else {
-                 Debug::Print("Playback", "Skipping playback for previously failed sound: '" + g_allSounds[selectedIndexInMasterList].displayName + "'");
-            }
+        // Final check for sample before playing
+        if (soundToPlay.sample is null) {
+            warn("[Bonk++] Sample is null for '" + soundToPlay.displayName + "' right before playback. This shouldn't happen.");
+            return;
         }
+
+        Debug::Print("Playback", "Playing sound: '" + soundToPlay.displayName + "' (Volume: " + Setting_BonkVolume + "%)");
+        Audio::Voice@ voice = null;
+        try {
+            @voice = Audio::Play(soundToPlay.sample);
+            if (voice !is null) voice.SetGain(float(Setting_BonkVolume) / 100.0f);
+            else warn("[Bonk++] Audio::Play returned null for: " + soundToPlay.displayName);
+        } catch { warn("[Bonk++] EXCEPTION playing '" + soundToPlay.displayName + "'. Error: " + getExceptionInfo()); }
+
+    }
+
+    // --- Public Functions for Settings UI ---
+
+    /**
+     * Initiates download for a specific remote sound.
+     */
+    void RequestDownloadRemoteSound(uint index) {
+        if (index < g_remoteSounds.Length) {
+            Debug::Print("SoundPlayer", "Download requested for remote sound: " + g_remoteSounds[index].displayName);
+            EnsureRemoteSoundDownloaded(g_remoteSounds[index]); // This will start the coroutine if needed
+        }
+    }
+
+    /**
+     * Triggers a refresh of the remote sound list from the JSON file.
+     */
+    void RequestRefreshRemoteSoundList() {
+        Debug::Print("SoundPlayer", "Refresh remote sound list requested.");
+        startnew(Coroutine_FetchAndProcessRemoteSoundList);
+    }
+
+    // --- Helper to get setting value by name (used for dynamic default sound settings) ---
+    bool GetSettingBool(const string &in varName, bool defaultValue) {
+        Meta::Plugin@plugin = Meta::ExecutingPlugin();
+        if (plugin is null) return defaultValue;
+        Meta::PluginSetting@ setting = plugin.GetSetting(varName);
+        if (setting !is null && setting.Type == Meta::PluginSettingType::Bool) return setting.ReadBool();
+        return defaultValue;
+    }
+
+    void SetSettingBool(const string &in varName, bool value) {
+        Meta::Plugin@plugin = Meta::ExecutingPlugin();
+        if (plugin is null) return;
+        Meta::PluginSetting@ setting = plugin.GetSetting(varName);
+        if (setting !is null && setting.Type == Meta::PluginSettingType::Bool) setting.WriteBool(value);
     }
 
 } // namespace SoundPlayer

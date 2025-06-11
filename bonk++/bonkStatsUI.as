@@ -51,10 +51,10 @@ namespace BonkStatsUI {
             positionCondition = UI::Cond::Always;
             sizeCondition = UI::Cond::Always;
             windowHeight = Setting_GUIHeight; // Use fixed height only when locked
-             if (Setting_Debug_EnableMaster && Setting_Debug_GUI) Debug::Print("GUI", "Window Locked: Using fixed height: " + windowHeight);
+            // SPAMMY if (Setting_Debug_EnableMaster && Setting_Debug_GUI) Debug::Print("GUI", "Window Locked: Using fixed height: " + windowHeight);
         } else {
             windowFlags |= UI::WindowFlags::AlwaysAutoResize; // Auto-resize when not locked
-             if (Setting_Debug_EnableMaster && Setting_Debug_GUI) Debug::Print("GUI", "Window Unlocked: Using AlwaysAutoResize for height.");
+            // SPAMMY if (Setting_Debug_EnableMaster && Setting_Debug_GUI) Debug::Print("GUI", "Window Unlocked: Using AlwaysAutoResize for height.");
         }
 
         // --- Set Window Position & Size ---

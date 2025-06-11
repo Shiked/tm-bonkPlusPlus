@@ -12,8 +12,6 @@ bool g_wasInActivePlayStateLastFrame = false;
 uint64 g_totalAllTimeBonks = 0; // Loaded/Saved via file
 float g_lastBonkSpeedKmh = 0.0f;
 float g_highestAllTimeBonkSpeedKmh = 0.0f; // All-time highest speed
-uint g_initializationFrames = 0;
-const uint INITIALIZATION_GRACE_FRAMES = 3; // Skip checks for 3 frames
 
 // --- Define the persistence file name ---
 const string ALL_TIME_STATS_FILENAME = "bonk_stats.txt";
@@ -99,6 +97,7 @@ void LoadAllTimeStatsFromFile() {
  * Saves the all-time bonk counter AND highest speed to its dedicated file.
  */
 void SaveAllTimeStatsToFile() {
+
     // Get the FULL path within the plugin's dedicated storage folder
     string filePath = IO::FromStorageFolder(ALL_TIME_STATS_FILENAME);
     print("[Bonk++] Attempting to save All-Time Stats (Count: " + g_totalAllTimeBonks + ", Speed: " + g_highestAllTimeBonkSpeedKmh + ") to: " + filePath); // Use print for higher visibility
@@ -148,7 +147,7 @@ void Main() {
     g_currentMapUid = "";
     ResetMapStats();
     LoadAllTimeStatsFromFile(); // Load persistent counter & speed from file
-    g_initializationFrames = INITIALIZATION_GRACE_FRAMES;
+
     SoundPlayer::Initialize();
     BonkTracker::Initialize();
     BonkUI::Initialize();
@@ -162,13 +161,14 @@ void OnEnable() {
     print("[Bonk++] Enabled");
     BonkTracker::Initialize();
     BonkUI::Initialize();
+    SoundPlayer::Initialize(); // Re-init sound player to pick up any new settings/files if needed
+    SoundPlayer::ReloadLocalCustomSounds();
+    startnew(SoundPlayer::Coroutine_FetchAndProcessRemoteSoundList); // Re-fetch remote list on enable
+
     g_currentMapUid = "";
     ResetMapStats();
     ResetSessionStats();
-    // No need to reload all-time stats here
-    g_initializationFrames = INITIALIZATION_GRACE_FRAMES; // Reset on map change too
-    BonkTracker::Initialize(); // Ensure tracker state is also reset
-    Debug::Print("Main", "Resetting Map Stats & Init Grace Period (" + INITIALIZATION_GRACE_FRAMES + " frames)");
+    Debug::Print("Main", "Plugin enabled. Resetting map/session stats & init grace period.");
 }
 
 /**
@@ -178,6 +178,8 @@ void OnDisable() {
     print("[Bonk++] Disabled");
     BonkUI::DeactivateVisualEffect();
     g_wasInActivePlayStateLastFrame = false;
+    // Consider releasing sound samples if memory is a concern when disabled for long
+    SoundPlayer::ReleaseAllSamples();
 }
 
 /**
@@ -186,6 +188,7 @@ void OnDisable() {
 void OnDestroyed() {
     print("[Bonk++] Unloading. Saving All-Time Stats...");
     SaveAllTimeStatsToFile(); // Save the counters before exiting
+    SoundPlayer::ReleaseAllSamples(); // Clean up audio samples
 }
 
 
@@ -240,9 +243,7 @@ void Update(float dt) {
     CGameCtnApp@ app = GetApp();
     if (app is null) {
         if (g_currentMapUid != "") {
-            // print("[Bonk++] App handle became null, resetting stats."); // More visible log
-            g_currentMapUid = "";
-            ResetMapStats();
+            g_currentMapUid = ""; ResetMapStats();
         }
         return;
     }
@@ -303,39 +304,31 @@ void Update(float dt) {
         if (bonkInfo !is null) {
              g_sessionTotalBonks++;
              g_mapTotalBonks++;
-             g_totalAllTimeBonks++; // Increment in-memory counter
+             g_totalAllTimeBonks++;
              g_lastBonkSpeedKmh = bonkInfo.speed;
-             Debug::Print("Main", "Counters - Session: " + g_sessionTotalBonks + ", Map: " + g_mapTotalBonks + ", AllTime: " + g_totalAllTimeBonks + ", LastSpeed: " + g_lastBonkSpeedKmh);
+             Debug::Print("Main", "Bonk! Session: " + g_sessionTotalBonks + ", Map: " + g_mapTotalBonks + ", AllTime: " + g_totalAllTimeBonks + ", Speed: " + g_lastBonkSpeedKmh);
 
-             // Update Map Highest Speed
-             if (bonkInfo.speed > g_mapHighestBonkSpeed) {
-                 g_mapHighestBonkSpeed = bonkInfo.speed;
-                 Debug::Print("Main", "New Map Highest Speed Bonk: " + g_mapHighestBonkSpeed + " km/h");
-             }
-
-             // Update All-Time Highest Speed
+             if (bonkInfo.speed > g_mapHighestBonkSpeed) g_mapHighestBonkSpeed = bonkInfo.speed;
              if (bonkInfo.speed > g_highestAllTimeBonkSpeedKmh) {
                  g_highestAllTimeBonkSpeedKmh = bonkInfo.speed;
-                 Debug::Print("Main", "New *** ALL-TIME *** Highest Speed Bonk: " + g_highestAllTimeBonkSpeedKmh + " km/h");
-                 // Potential immediate save (optional, OnDestroyed is safer)
-                 SaveAllTimeStatsToFile();
+                 SaveAllTimeStatsToFile(); // Save immediately on new all-time high
              }
 
              // Sound/Visual Trigger Logic
              if (Setting_EnableSound) {
                  int chanceRoll = Math::Rand(0, 100);
                  if (chanceRoll < int(Setting_BonkChance)) {
-                     SoundPlayer::PlayBonkSound();
-                     if (Setting_EnableVisual) BonkUI::TriggerVisualEffect();
-                 } else {
-                      if (Setting_EnableVisual) BonkUI::TriggerVisualEffect();
+                     SoundPlayer::PlayBonkSound(); // This now handles complex selection
+                     // Visual effect might be triggered based on sound success or independently
                  }
-             } else if (Setting_EnableVisual) {
+             }
+             // Visual effect trigger remains independent of sound chance, but tied to master visual toggle
+             if (Setting_EnableVisual) {
                  BonkUI::TriggerVisualEffect();
              }
         }
     } else {
-        BonkTracker::UpdateDetection(dt); // Maintain physics state
+        BonkTracker::UpdateDetection(dt); // Maintain physics state even if not "actively playing" for stats
     }
 }
 
