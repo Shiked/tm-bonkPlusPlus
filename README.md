@@ -1,5 +1,5 @@
 # Bonk++ for Trackmania
-**Version:** 1.5.1
+**Version:** 1.6.9
 Plays sounds and shows visuals when you crash ('bonk') your car in Trackmania. Inspired by the original ["Bonk!"](https://github.com/MisfitMaid/tm-bonk) plugin.
 
 ---
