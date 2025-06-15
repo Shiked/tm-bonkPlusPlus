@@ -23,7 +23,7 @@ namespace BonkStatsUI {
         if (!IsPlayerActivelyPlaying()) {
             // If debugging GUI, log why we're skipping
             if (Setting_Debug_EnableMaster && Setting_Debug_GUI) {
-                Debug::Print("GUI", "Skipping GUI render: IsPlayerActivelyPlaying() returned false.");
+                // SPAMMY outside of in-game Debug::Print("GUI", "Skipping GUI render: IsPlayerActivelyPlaying() returned false.");
             }
             // Don't render the window if not in an active play state (e.g., menus, editor)
             return;

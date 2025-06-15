@@ -232,7 +232,7 @@ void RenderLocalCustomSoundsHeader() {
 
 void RenderLocalCustomSoundsFooter() {
     UI::Dummy(vec2(0, 5));
-    string customPath = IO::FromStorageFolder("LocalSounds/");
+    string customPath = SoundPlayer::g_userLocalSoundsFolder;
     UI::TextWrapped("Place custom sounds (.ogg, .wav, .mp3) in:");
     UI::PushItemWidth(-200);
     UI::InputText("##LocalCustomSoundPath", customPath, UI::InputTextFlags::ReadOnly);

@@ -36,11 +36,201 @@ namespace SoundPlayer {
     int g_consecutivePlayCount = 0;
     bool g_isInitialized = false;
     string g_downloadedSoundsFolder = "";
-    string g_userLocalSoundsFolder = ""; 
+    string g_userLocalSoundsFolder;
 
     const string REMOTE_SOUND_LIST_URL = "https://file.shikes.space/api/bonkpp-sounds.json";
     const string REMOTE_SOUND_BASE_URL = "https://file.shikes.space/TM/BonkPP/";
+
+    const string OLD_CUSTOM_SOUNDS_SUBFOLDER = "Sounds/"; // The old folder name
+    const string NEW_CUSTOM_SOUNDS_SUBFOLDER = "LocalSounds/"; // The new folder name
+
+/**
+ * THIS WILL BE REMOVED IN A FUTURE VERSION - 
+ * once it's safe to assume that people are not updating from pre-v1.6.9 versions
+ * 
+ * Performs a one-time migration of custom sounds.
+ * Prioritizes renaming the old "Sounds" folder to "LocalSounds" if safe.
+ * Falls back to a file-by-file merge if "LocalSounds" already exists and has content.
+ */
+void PerformOneTimeCustomSoundMigration() {
+    string bonkHeader = Icons::Music + " Bonk++";
+    vec4 headerWarnBgColor = vec4(1.0f, 0.5f, 0.0f, 1.0f); 
+    vec4 headerSuccessBgColor = vec4(0.2f, 0.6f, 0.25f, 0.9f); 
+
+    string basePluginStoragePath = IO::FromStorageFolder("");
+    if (basePluginStoragePath == "") {
+        warn("[Bonk++] Migration: Could not determine base plugin storage path. Skipping migration.");
+        return;
+    }
+
+    string oldSoundsPath = Path::Join(basePluginStoragePath, OLD_CUSTOM_SOUNDS_SUBFOLDER);
+    string newSoundsPath = Path::Join(basePluginStoragePath, NEW_CUSTOM_SOUNDS_SUBFOLDER);
+
+    Debug::Print("SoundPlayer", "Migration Check: Old path: " + oldSoundsPath);
+    Debug::Print("SoundPlayer", "Migration Check: New path: " + newSoundsPath);
+
+    if (!IO::FolderExists(oldSoundsPath)) {
+        Debug::Print("SoundPlayer", "Migration: Old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder not found. No migration needed.");
+        return;
+    }
+
+    print("[Bonk++] Old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder found. Checking migration strategy...");
+    UI::ShowNotification(bonkHeader, "Checking for custom sounds to migrate...", 5000);
+
+    bool migrationViaRenameSuccessful = false;
+
+    if (!IO::FolderExists(newSoundsPath)) {
+        Debug::Print("SoundPlayer", "Migration: New '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder does not exist. Attempting to rename old folder.");
+        try {
+            IO::Move(oldSoundsPath, newSoundsPath);
+            migrationViaRenameSuccessful = true;
+            print("[Bonk++] Migration: Successfully renamed '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' to '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "'.");
+            UI::ShowNotification(bonkHeader, "Custom sounds migrated (folder renamed).", 7000);
+        } catch {
+            warn("[Bonk++] Migration: Failed to rename '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' to '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "'. Error: " + getExceptionInfo() + ". Falling back to file-by-file migration.");
+        }
+    } else {
+        Debug::Print("SoundPlayer", "Migration: New '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder exists. Checking if empty.");
+        array<string>@ itemsInNewFolder = IO::IndexFolder(newSoundsPath, false);
+
+        if (itemsInNewFolder !is null && itemsInNewFolder.Length == 0) {
+            Debug::Print("SoundPlayer", "Migration: New '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder is empty. Attempting to delete it and then rename old folder.");
+            try {
+                IO::DeleteFolder(newSoundsPath, false);
+                Debug::Print("SoundPlayer", "Migration: Successfully deleted empty '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder.");
+                IO::Move(oldSoundsPath, newSoundsPath);
+                migrationViaRenameSuccessful = true;
+                print("[Bonk++] Migration: Deleted empty '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' and renamed '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' to it.");
+                UI::ShowNotification(bonkHeader, "Custom sounds migrated (folder replaced).", 7000);
+            } catch {
+                warn("[Bonk++] Migration: Failed during delete/rename of empty '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' and '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "'. Error: " + getExceptionInfo() + ". Falling back to file-by-file migration.");
+            }
+        } else {
+            Debug::Print("SoundPlayer", "Migration: New '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder exists and is not empty (or unreadable: " + (itemsInNewFolder is null) + ", items: " + (itemsInNewFolder !is null ? itemsInNewFolder.Length : -1) + "). Proceeding with file-by-file merge.");
+        }
+    }
+
+    if (migrationViaRenameSuccessful) {
+        Debug::Print("SoundPlayer", "Migration completed successfully via folder rename/replace.");
+        return;
+    }
+
+    print("[Bonk++] Attempting file-by-file migration/merge from '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' into '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "'.");
+
+    if (!IO::FolderExists(newSoundsPath)) {
+        Debug::Print("SoundPlayer", "Migration (File-by-File): New '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder still not found. Attempting to create.");
+        try {
+            IO::CreateFolder(newSoundsPath, true);
+        } catch {
+            warn("[Bonk++] Migration (File-by-File): Critical error - Failed to create '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "' folder at '" + newSoundsPath + "'. Error: " + getExceptionInfo() + ". Migration aborted.");
+            UI::ShowNotification(bonkHeader, "Error creating LocalSounds folder for merge. Migration failed. Please check logs.", headerWarnBgColor, 10000);
+            return;
+        }
+    }
+
+    array<string>@ itemsInOldFolder = IO::IndexFolder(oldSoundsPath, false);
+    if (itemsInOldFolder is null) {
+        warn("[Bonk++] Migration (File-by-File): Failed to list items in old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder. Aborting file-by-file merge.");
+        return;
+    }
     
+    if (itemsInOldFolder.Length == 0) {
+        Debug::Print("SoundPlayer", "Migration (File-by-File): Old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder is empty.");
+    } else {
+        Debug::Print("SoundPlayer", "Migration (File-by-File): Found " + itemsInOldFolder.Length + " item(s) in old folder to process for merge.");
+    }
+
+    int filesMovedCount = 0;
+    bool anyMoveFailed = false;
+
+    for (uint i = 0; i < itemsInOldFolder.Length; i++) {
+        string sourceItemPath = itemsInOldFolder[i];
+        string fileName = Path::GetFileName(sourceItemPath);
+
+        if (IO::FileExists(sourceItemPath)) {
+            // Item is confirmed to be a file.
+            Debug::Print("SoundPlayer", "Migration (File-by-File): Identified FILE: " + fileName);
+            string targetFilePath = Path::Join(newSoundsPath, fileName);
+
+            if (IO::FileExists(targetFilePath)) {
+                Debug::Print("SoundPlayer", "Migration (File-by-File): File '" + fileName + "' already exists in '" + NEW_CUSTOM_SOUNDS_SUBFOLDER + "'. Skipping move.");
+            } else {
+                Debug::Print("SoundPlayer", "Migration (File-by-File): Attempting to move FILE '" + fileName + "' to '" + targetFilePath + "'");
+                try {
+                    IO::Move(sourceItemPath, targetFilePath);
+                    filesMovedCount++;
+                    Debug::Print("SoundPlayer", "Migration (File-by-File): Successfully moved '" + fileName + "'.");
+                } catch {
+                    string errorMsg = getExceptionInfo();
+                    warn("[Bonk++] Migration (File-by-File): Failed to move file '" + fileName + "'. Error: " + errorMsg);
+                    anyMoveFailed = true;
+                }
+            }
+        } else if (IO::FolderExists(sourceItemPath)) {
+            // Item is confirmed to be a folder.
+            Debug::Print("SoundPlayer", "Migration (File-by-File): Skipping actual SUBFOLDER found in old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "': " + fileName);
+        } else {
+            // Item is neither a file nor a folder that IO can identify.
+            warn("[Bonk++] Migration (File-by-File): Item '" + fileName + "' from old folder (" + sourceItemPath + ") is neither a recognized file nor folder. Skipping.");
+        }
+    }
+
+    if (filesMovedCount > 0) {
+         UI::ShowNotification(bonkHeader, "Merged " + filesMovedCount + " custom sound(s) into 'LocalSounds' folder.", headerSuccessBgColor, 7000);
+    } else if (!anyMoveFailed && itemsInOldFolder.Length > 0) {
+        bool anyFilesWerePresentInOld = false;
+        for(uint i=0; i < itemsInOldFolder.Length; i++) { if(IO::FileExists(itemsInOldFolder[i])) { anyFilesWerePresentInOld = true; break; }}
+        if(anyFilesWerePresentInOld) { // Only log this if there were actually files to potentially move
+            Debug::Print("SoundPlayer", "Migration (File-by-File): No files needed to be moved (likely all already existed in new folder).");
+        }
+    }
+    
+    // --- Final Cleanup of the Old "Sounds" Folder ---
+    if (IO::FolderExists(oldSoundsPath)) {
+        array<string>@ remainingItemsInOldFolder = IO::IndexFolder(oldSoundsPath, false);
+        bool oldFolderIsCompletelyEmpty = (remainingItemsInOldFolder !is null && remainingItemsInOldFolder.Length == 0);
+
+        if (oldFolderIsCompletelyEmpty) {
+            Debug::Print("SoundPlayer", "Migration Cleanup: Old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder is completely empty. Attempting delete.");
+            try {
+                IO::DeleteFolder(oldSoundsPath, false); // false = non-recursive, only if empty
+                print("[Bonk++] Migration Cleanup: Successfully deleted completely empty old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder.");
+            } catch {
+                warn("[Bonk++] Migration Cleanup: Could not delete empty old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder. Error: " + getExceptionInfo());
+            }
+        } else if (remainingItemsInOldFolder !is null) { // Not completely empty, but we have a list of what's left
+            string renameSuffix = "_LEGACY_REVIEW-AND-DELETE";
+            string oldSoundsPathParent = Path::GetDirectoryName(oldSoundsPath.SubStr(0, oldSoundsPath.Length -1)); // Get parent of "Sounds/"
+            string oldSoundsFolderName = Path::GetFileName(oldSoundsPath.SubStr(0, oldSoundsPath.Length -1));    // Get "Sounds"
+            string newNameForOldFolder = oldSoundsFolderName + renameSuffix;
+            string renamedOldSoundsPath = Path::Join(oldSoundsPathParent, newNameForOldFolder) + "/";
+
+
+            if (IO::FolderExists(renamedOldSoundsPath) || IO::FileExists(renamedOldSoundsPath.SubStr(0, renamedOldSoundsPath.Length-1))) {
+                 warn("[Bonk++] Migration Cleanup: Wanted to rename old sounds folder to '" + newNameForOldFolder + "' but a folder or file with that name already exists. Old folder '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' left as is. Manual cleanup is required.");
+                 UI::ShowNotification(bonkHeader, "Old 'Sounds' folder still contains items and could not be auto-renamed. Please check it manually.", headerWarnBgColor, 10000);
+            } else {
+                Debug::Print("SoundPlayer", "Migration Cleanup: Old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder still contains items ("+remainingItemsInOldFolder.Length+"). Attempting to rename to '" + newNameForOldFolder + "'.");
+                try {
+                    IO::Move(oldSoundsPath, renamedOldSoundsPath);
+                    print("[Bonk++] Migration Cleanup: Renamed old sounds folder to '" + newNameForOldFolder + "'. Please check its contents and delete manually if no longer needed.");
+                    UI::ShowNotification(bonkHeader, "Old 'Sounds' folder renamed to '" + newNameForOldFolder + "'. Please confirm all sounds are in the LocalSounds folder and delete.", headerWarnBgColor, 10000);
+                } catch {
+                    warn("[Bonk++] Migration Cleanup: Failed to rename old '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' folder. Error: " + getExceptionInfo() + ". Manual cleanup may be needed.");
+                     UI::ShowNotification(bonkHeader, "Old 'Sounds' folder still contains items and rename failed. Please check it manually.", headerWarnBgColor, 10000);
+                }
+            }
+        } else { // remainingItemsInOldFolder is null - couldn't list contents
+            warn("[Bonk++] Migration Cleanup: Could not re-index old folder '" + OLD_CUSTOM_SOUNDS_SUBFOLDER + "' to confirm its contents for final cleanup. Manual cleanup may be needed.");
+            UI::ShowNotification(bonkHeader, "Could not verify old 'Sounds' folder contents. Please check it manually.", headerWarnBgColor, 10000);
+        }
+    } // end if (IO::FolderExists(oldSoundsPath))
+
+    Debug::Print("SoundPlayer", "Migration process finished.");
+}
+
+// --- END MIGRATION ---
+
     /**
      * Releases all loaded Audio::Sample handles and cancels active downloads.
      */
@@ -142,32 +332,27 @@ namespace SoundPlayer {
             g_playableSounds.Resize(0);
         }
 
+        // --- Perform one-time migration BEFORE defining g_userLocalSoundsFolder path fully ---
+        PerformOneTimeCustomSoundMigration();
+
         string basePluginStoragePath = IO::FromStorageFolder("");
         Debug::Print("SoundPlayer", "Base Plugin Storage Path: " + basePluginStoragePath);
-        
-        // Define and create the "DownloadedSounds" subfolder
+
         g_downloadedSoundsFolder = Path::Join(basePluginStoragePath, "DownloadedSounds/");
         if (!IO::FolderExists(g_downloadedSoundsFolder)) {
-            try {
-                IO::CreateFolder(g_downloadedSoundsFolder, true);
-                Debug::Print("SoundPlayer", "Created DownloadedSounds folder: " + g_downloadedSoundsFolder);
-            } catch {
-                warn("[Bonk++] Failed to create DownloadedSounds folder: " + g_downloadedSoundsFolder + ". Error: " + getExceptionInfo());
-            }
+            try { IO::CreateFolder(g_downloadedSoundsFolder, true); Debug::Print("SoundPlayer", "Created DownloadedSounds folder: " + g_downloadedSoundsFolder); }
+            catch { warn("[Bonk++] Failed to create DownloadedSounds folder. Error: " + getExceptionInfo()); }
         }
 
-        // Define and create the "LocalSounds" subfolder (renamed from "Sounds/")
-        g_userLocalSoundsFolder = Path::Join(basePluginStoragePath, "LocalSounds/");
+        // Define and create the "LocalSounds" subfolder using the NEW name
+        g_userLocalSoundsFolder = Path::Join(basePluginStoragePath, NEW_CUSTOM_SOUNDS_SUBFOLDER);
         if (!IO::FolderExists(g_userLocalSoundsFolder)) {
-            try {
-                IO::CreateFolder(g_userLocalSoundsFolder, true);
-                Debug::Print("SoundPlayer", "Created LocalSounds folder: " + g_userLocalSoundsFolder);
-            } catch {
-                warn("[Bonk++] Failed to create LocalSounds folder: " + g_userLocalSoundsFolder + ". Error: " + getExceptionInfo());
-            }
+            try { IO::CreateFolder(g_userLocalSoundsFolder, true); Debug::Print("SoundPlayer", "Created LocalSounds folder: " + g_userLocalSoundsFolder); }
+            catch { warn("[Bonk++] Failed to create LocalSounds folder. Error: " + getExceptionInfo()); }
         }
+
         PopulateDefaultSoundList();
-        ReloadLocalCustomSounds();
+        ReloadLocalCustomSounds(); // Will now use g_userLocalSoundsFolder (which might have just been renamed)
         startnew(Coroutine_FetchAndProcessRemoteSoundList);
 
         g_isInitialized = true;

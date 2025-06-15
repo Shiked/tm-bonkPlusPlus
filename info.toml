@@ -1,7 +1,7 @@
 [meta]
 name = "Bonk++"
 author = "Shike"
-version = "1.6.9"
+version = "1.6.9.1"
 description = "Plays sounds and shows visuals on crashes, inspired by MisfitMaid's Bonk!."
 category = "Audio"
 siteid = 707

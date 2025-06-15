@@ -1,5 +1,5 @@
 # Bonk++ for Trackmania
-**Version:** 1.6.9
+**Version:** 1.6.9.1
 Plays sounds and shows visuals when you crash ('bonk') your car in Trackmania. Inspired by the original ["Bonk!"](https://github.com/MisfitMaid/tm-bonk) plugin.
 
 Openplanet page: [Bonk++ Plugin](https://openplanet.dev/plugin/bonkplusplus)
@@ -8,7 +8,10 @@ Openplanet page: [Bonk++ Plugin](https://openplanet.dev/plugin/bonkplusplus)
 ## Features
 
 *   **Crash Detection:** Detects significant impacts using vehicle physics analysis, trying to ignore normal driving bumps and landings.
-*   **Sound Effects:** Plays sounds on bonks. Includes defaults (`bonk.wav`, `oof.wav`, `vineboom.mp3`) and supports your own custom sounds (`.wav`, `.mp3`, `.ogg`).
+*   **Sound Effects:**
+    *   Plays sounds on bonks. Includes defaults (`bonk.wav`, `oof.wav`, `vineboom.mp3`).
+    *   Supports your own custom local sounds (`.wav`, `.mp3`, `.ogg`).
+    *   **New!** Supports downloading and using a curated list of remote sounds hosted online.
 *   **Visual Effects:** Shows a configurable colored vignette (screen border effect) on impact.
 *   **Stat Tracking:** An optional window displays bonk counts (current map, session, all-time) and speeds.
 *   **Configurable:** Fine-tune detection sensitivity, sound/visual options, stat display, and more via Openplanet settings.
@@ -30,10 +33,19 @@ Access settings via the Openplanet overlay (`F3`):
 
 You can adjust:
 *   **General:** Enable/disable sound/visuals, chance of sound playing, volume.
-*   **Detection:** How sensitive the crash detection is (overall threshold, separate ground/air sensitivity), and time between bonks.
-*   **Sound:** Playback mode (Random/Ordered), max repeats for random mode, enable/disable default sounds, enable/disable custom sounds.
+*   **Detection:** How sensitive the crash detection is, and time between bonks.
+*   **Sound (Main Tab):**
+    *   Playback mode (Random/Ordered).
+    *   Max repeats for random mode.
+    *   Master toggles for Default Sounds, Local Custom Sounds, and Remote Sounds.
+    *   Individual enable/disable toggles for each *downloaded* Remote Sound (sounds must be downloaded first via the "Downloaded Sounds" tab).
+*   **Downloaded Sounds (Tab):**
+    *   View a list of available remote sounds.
+    *   Download individual remote sounds to your local storage.
+    *   Refresh the list of available remote sounds from the server.
+    *   Reload the status of already downloaded sounds.
 *   **Visual:** Duration, color, opacity, and shape of the visual effect.
-*   **Stat Box:** Enable/disable the stats window, lock its position/size, toggle which stats are shown (bonk counts, speeds, rate).
+*   **Stat Box:** Enable/disable the stats window, lock its position/size, toggle which stats are shown.
 *   **Reset Stats:** A dedicated tab to reset map, session, or all-time stats (with confirmation).
 *   **Misc:** Enable debug logging for troubleshooting.
 
@@ -41,13 +53,31 @@ You can adjust:
 
 ---
 
-## Custom Sounds
+## Sound Sources
 
-1.  Enable `Enable Custom Sounds` in the **Sound** settings.
+Bonk++ supports three types of sound sources:
+
+### 1. Default Sounds
+These are sounds packaged directly with the plugin (`bonk.wav`, `oof.wav`, `vineboom.mp3`).
+*   Enable/disable the entire group using "Enable Default Sounds" in the **Sound** settings tab.
+
+### 2. Local Custom Sounds
+Load your own sound files from your computer.
+1.  Enable `Enable Local Custom Sounds` in the **Sound** settings tab.
 2.  Place your `.wav`, `.ogg`, or `.mp3` files in:
-    `Documents\Trackmania\OpenplanetNext\PluginStorage\BonkPlusPlus\Sounds\`
-    *(The plugin will create this folder if it doesn't exist)*
-3.  Click the `Reload Sounds` button in the **Sound** settings (or restart the game).
+    `Documents\Trackmania\OpenplanetNext\PluginStorage\BonkPlusPlus\LocalSounds\`
+    *(The plugin will create the `BonkPlusPlus\LocalSounds\` folder if it doesn't exist. If you are updating from an older version of Bonk++, your sounds from the old `\Sounds\` folder will be automatically moved to `\LocalSounds\` the first time you run this version.)*
+3.  Click the `Reload Local Sounds` button in the **Sound** settings tab (under "Local Custom Sounds") or restart the game/plugin.
+
+### 3. Remote Sounds (New!)
+Download and use a curated list of sounds hosted online.
+1.  Go to the **Downloaded Sounds** settings tab in Bonk++.
+2.  You'll see a list of available remote sounds. Click `Download` (or `Re-download`) next to the sounds you want to use. They will be saved to:
+    `Documents\Trackmania\OpenplanetNext\PluginStorage\BonkPlusPlus\DownloadedSounds\`
+3.  Once a sound is downloaded, go back to the main **Sound** settings tab.
+4.  Ensure "Enable Remote Sounds" is checked.
+5.  You can then enable/disable individual downloaded remote sounds using their toggles (under the "Manage Downloaded Sound Toggles" collapsible section).
+    *Note: A remote sound **must be downloaded first** via the "Downloaded Sounds" tab before its enable toggle in the "Sound" tab becomes active.*
 
 ---
 
@@ -60,7 +90,13 @@ You can adjust:
 
 ## Troubleshooting
 
-*   **No Sound/Visuals?** Check the master enable toggles in **General** settings. For sound, also check **Volume**, **Bonk Chance**, and if specific/custom sounds are enabled in **Sound** settings. Check the Openplanet log (`Ctrl+L` or in overlay) for errors.
+*   **No Sound/Visuals?**
+    *   Check the master enable toggles in **General** settings.
+    *   For sound, check **Volume** and **Bonk Chance**.
+    *   In the **Sound** tab, ensure the desired sound source (Default, Local Custom, Remote) has its master toggle enabled.
+    *   Then, ensure the specific individual sound (default or remote) is also enabled.
+    *   For remote sounds, make sure they are first downloaded via the **Downloaded Sounds** tab.
+    *   Check the Openplanet log (`Ctrl+L` or in overlay) for errors.
 *   **Too Many/Few Bonks?** Adjust the **Detection** sensitivity settings. Lower values = more sensitive.
 *   **Bonk on Respawn?** Install and enable the optional `MLHook` and `MLFeedRaceData` plugins.
 *   **Visual Effect Issues?** Adjust settings in the **Visual** category.
